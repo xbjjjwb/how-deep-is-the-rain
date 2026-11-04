@@ -1,0 +1,3288 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d10">
+<meta name="description" content="把 2021 年郑州“7·20”一天的逐时降雨量放到一条夜晚的街道上，用路沿、车门、膝盖这些身边的高度，量出“每小时 201.9 毫米”到底有多深。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0d10'/%3E%3Cpath d='M16 5c4.5 6.2 7 10.4 7 13.6a7 7 0 0 1-14 0C9 15.4 11.5 11.2 16 5z' fill='%233987e5'/%3E%3Cpath d='M9.4 20.5h13.2' stroke='%23ffc58a' stroke-width='1.6'/%3E%3C/svg%3E">
+<title>一场雨有多深</title>
+<style>
+  :root {
+    --font: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", "Noto Sans SC", system-ui, sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", "Cascadia Mono", Consolas, "Roboto Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: var(--font); color: #e6ebf1; }
+  #scene { position: fixed; inset: 0; display: block; width: 100%; height: 100%; cursor: grab; outline: none; }
+  #scene.dragging { cursor: grabbing; }
+  #fade { position: fixed; inset: 0; background: #000; pointer-events: none; transition: opacity 1.6s ease; z-index: 50; }
+  #fade.gone { opacity: 0; }
+
+  /* ---------- 标题与读数 ---------- */
+  #brand { position: fixed; top: 28px; left: 32px; z-index: 20; pointer-events: none; display: flex; align-items: flex-start; gap: 14px; }
+  /* 收起 / 展开界面：只留画面，方便录制演示视频与截图 */
+  #btnChrome {
+    pointer-events: auto; flex: none; margin-top: 3px; width: 34px; height: 34px; border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.13); background: rgba(12,14,17,0.5); color: #b9bec6; cursor: pointer;
+    display: grid; place-items: center; transition: background .2s, color .2s;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  }
+  #btnChrome:hover { background: rgba(255,255,255,0.13); color: #fff; }
+  #btnChrome svg { width: 17px; height: 17px; display: block; }
+  #btnChrome .i-show, #btnChrome.off .i-hide { display: none; }
+  #btnChrome.off .i-show { display: block; }
+  #hud, #dock { transition: opacity .35s ease, transform .35s ease; }
+  #hud.off { opacity: 0; transform: translateX(-28px); pointer-events: none; }
+  #dock.off { opacity: 0; transform: translateY(28px); pointer-events: none; }
+  #brand h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: 3px; color: #f3efe8; }
+  #brand p { margin: 7px 0 0; font-size: 12px; color: #8f949b; letter-spacing: .5px; }
+  #hud { position: fixed; top: 104px; left: 32px; z-index: 20; width: 290px; pointer-events: none; padding: 14px 16px 16px; margin-left: -16px; border-radius: 14px; background: linear-gradient(90deg, rgba(0,0,0,0.55), rgba(0,0,0,0)); }
+  #hud .clock { font: 300 16px var(--mono); letter-spacing: 1px; color: #c9cdd3; }
+  #hud .lbl { margin-top: 14px; font-size: 12px; color: #8f949b; }
+  #hud .hero { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; }
+  #hud .hero b { font-size: 64px; font-weight: 300; line-height: 1; color: #fff; letter-spacing: .5px; }
+  #hud .hero span { font-size: 15px; color: #c9cdd3; }
+  #hud .body { margin-top: 8px; font-size: 14px; color: #ffd2a0; }
+  #hud .note { margin-top: 6px; font-size: 11px; line-height: 1.6; color: #6f747b; }
+  #hud dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 22px 0 0; font-size: 12px; }
+  #hud dt { color: #8f949b; }
+  #hud dd { margin: 0; color: #c9cdd3; }
+  #hud dd b { font: 600 15px var(--mono); color: #f3efe8; margin-right: 3px; }
+  #hud .ms { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column-reverse; gap: 1px; font-size: 11.5px; }
+  #hud .ms li { display: flex; gap: 10px; color: #5d6168; transition: color .4s; }
+  #hud .ms li .h { width: 44px; text-align: right; font-family: var(--mono); }
+  #hud .ms li.on { color: #ffd2a0; }
+  #hud .ms li.on .n::after { content: ' ✓'; }
+  #hud .ms li.next { color: #d9dce0; }
+  #hud .grade { margin-left: 8px; padding: 1px 8px; border-radius: 9px; font-size: 11px; color: #e6e2dc; background: rgba(255,255,255,0.08); }
+
+  /* ---------- 底部：播放 + 全天时间轴 + 工具 ---------- */
+  #dock {
+    position: fixed; left: 24px; right: 24px; bottom: 20px; z-index: 30;
+    display: flex; align-items: center; gap: 16px; padding: 10px 14px 8px 12px;
+    border-radius: 16px; background: rgba(12,14,17,0.66); border: 1px solid rgba(255,255,255,0.07);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  }
+  #btnPlay {
+    flex: none; width: 44px; height: 44px; border-radius: 50%; border: 0; padding: 0; cursor: pointer;
+    display: grid; place-items: center; background: #f1ede6; color: #15171a; transition: filter .2s;
+  }
+  #btnPlay:hover { filter: brightness(1.08); }
+  #btnPlay .i-pause, #btnPlay.playing .i-play { display: none; }
+  #btnPlay.playing .i-pause { display: block; }
+  #tlWrap { flex: 1; min-width: 0; position: relative; }
+  #tlWrap .cap { display: flex; justify-content: space-between; font-size: 11px; color: #8f949b; padding: 0 2px 2px 46px; }
+  #tl { display: block; width: 100%; height: 84px; cursor: pointer; touch-action: none; }
+  #tl .bar { fill: #3987e5; transition: fill-opacity .3s; }
+  #tl .bar.future { fill-opacity: .3; }
+  #tl .grid { stroke: rgba(255,255,255,0.08); stroke-width: 1; }
+  #tl .base { stroke: rgba(255,255,255,0.25); stroke-width: 1; }
+  #tl .lab { fill: #7c8189; font-size: 10px; font-family: var(--mono); }
+  #tl .ph line { stroke: #fff; stroke-width: 1.5; }
+  #tl .ph circle { fill: #fff; stroke: rgba(12,14,17,0.9); stroke-width: 2; }
+  #tlTip {
+    position: absolute; bottom: 100%; transform: translate(-50%, -4px); pointer-events: none; white-space: nowrap;
+    display: flex; flex-direction: column; gap: 2px; padding: 7px 10px; border-radius: 8px;
+    background: rgba(24,27,32,0.95); border: 1px solid rgba(255,255,255,0.1); font-size: 11px; color: #c9cdd3;
+    opacity: 0; transition: opacity .15s;
+  }
+  #tlTip.show { opacity: 1; }
+  #tlTip b { color: #f3efe8; font-weight: 600; }
+  .dk-tools { flex: none; display: flex; gap: 6px; }
+  .dk-tools button {
+    width: 38px; height: 38px; border: 0; padding: 0; border-radius: 10px; cursor: pointer;
+    display: grid; place-items: center; background: rgba(255,255,255,0.04); color: #b9bec6; transition: background .2s, color .2s;
+  }
+  .dk-tools button:hover { background: rgba(255,255,255,0.09); color: #fff; }
+  .dk-tools button.on { color: #ffc58a; }
+  .dk-tools svg { width: 16px; height: 16px; display: block; }
+
+  /* ---------- 数据面板（右侧浮层） ---------- */
+  #panel {
+    position: fixed; top: 12px; right: 12px; bottom: 12px; width: 392px; max-width: calc(100vw - 24px); z-index: 40;
+    display: flex; flex-direction: column; border-radius: 18px;
+    background: rgba(18,19,22,0.95); border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    transform: translateX(calc(100% + 24px)); transition: transform .4s cubic-bezier(.2,.8,.2,1);
+  }
+  #panel.open { transform: none; }
+  .pn-head { display: flex; align-items: flex-start; gap: 12px; padding: 22px 22px 14px; }
+  .pn-head h2 { margin: 0; font-size: 18px; font-weight: 700; color: #f3efe8; letter-spacing: 1px; }
+  .pn-head p { margin: 6px 0 0; font-size: 12px; line-height: 1.6; color: #8f949b; }
+  .p-close {
+    margin-left: auto; flex: none; width: 32px; height: 32px; border-radius: 10px; border: 0; padding: 0;
+    background: rgba(255,255,255,0.06); color: #c9cdd3; cursor: pointer; display: grid; place-items: center; transition: background .2s, color .2s;
+  }
+  .p-close:hover { background: rgba(255,255,255,0.12); color: #fff; }
+  .pn-body { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0 22px 18px; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.12) transparent; }
+  .pn-sec { padding: 16px 0; border-top: 1px solid rgba(255,255,255,0.07); }
+  .pn-sec h3 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: #e6e2dc; }
+  .pn-sec h3 small { margin-left: 8px; font-weight: 400; font-size: 11px; color: #7c8189; }
+  .pn-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  .fld input { width: 100%; }
+  .fld { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: #8f949b; }
+  .fld input, .hr input {
+    height: 34px; min-width: 0; padding: 0 10px; border-radius: 9px; outline: 0; color-scheme: dark;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #f3efe8; font: 13px var(--font);
+    transition: border-color .2s, background .2s;
+  }
+  .fld input:focus, .hr input:focus { border-color: rgba(255,197,138,0.7); background: rgba(255,197,138,0.06); }
+  .fld input.need { border-color: rgba(255,197,138,0.8); }
+  .bars-read { display: flex; justify-content: space-between; align-items: baseline; height: 22px; font-size: 12px; color: #8f949b; }
+  .bars-read b { font: 600 16px var(--mono); color: #f3efe8; margin-right: 3px; }
+  #bars { display: block; width: 100%; height: 150px; cursor: ns-resize; touch-action: none; outline: none; }
+  #bars .b { fill: #3987e5; }
+  #bars .b.on { fill: #ffc58a; }
+  #bars .grid { stroke: rgba(255,255,255,0.08); stroke-width: 1; }
+  #bars .base { stroke: rgba(255,255,255,0.25); stroke-width: 1; }
+  #bars .lab { fill: #7c8189; font-size: 10px; font-family: var(--mono); }
+  .bars-hint { margin-top: 4px; font-size: 11px; color: #6f747b; }
+  .hrs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 14px; }
+  .hr { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .hr span { font: 10px var(--mono); color: #7c8189; }
+  .hr input { width: 100%; height: 30px; padding: 0 8px; font: 600 13px var(--mono); }
+  .hr input.on { border-color: rgba(255,197,138,0.7); }
+  .pn-sum { margin-top: 14px; font-size: 12px; color: #c9cdd3; }
+  .pn-sum b { font: 600 14px var(--mono); color: #f3efe8; margin: 0 2px; }
+  .pn-btns { display: flex; gap: 8px; }
+  .btn {
+    flex: 1; height: 36px; padding: 0 14px; border-radius: 10px; cursor: pointer; transition: background .2s, filter .2s;
+    font: 600 12px var(--font); letter-spacing: .5px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.05); color: #e6e2dc;
+  }
+  .btn:hover { background: rgba(255,255,255,0.1); }
+  .btn.pri { background: #f1ede6; border-color: #f1ede6; color: #15171a; }
+  .btn.pri:hover { filter: brightness(1.06); }
+  .pn-links { display: flex; justify-content: space-between; margin-top: 10px; }
+  .pn-link { background: none; border: 0; padding: 0; color: #ffc58a; font: 12px var(--font); cursor: pointer; }
+  .pn-link:hover { color: #ffd9b0; }
+  .pn-link[hidden] { display: none; }
+  .io-note { margin-top: 10px; font-size: 11px; line-height: 1.7; color: #7c8189; white-space: pre-line; }
+  .io-note.ok { color: #9cc9a8; }
+  .io-note.err { color: #e9a08f; }
+  .pn-foot { padding: 14px 22px 18px; border-top: 1px solid rgba(255,255,255,0.07); }
+
+  /* ---------- 开场：先猜，再看 ---------- */
+  #intro, #result {
+    position: fixed; inset: 0; z-index: 55; display: grid; place-items: center; padding: 24px;
+    background: radial-gradient(ellipse at 30% 40%, rgba(10,11,13,0.72), rgba(0,0,0,0.9));
+    opacity: 0; pointer-events: none; transition: opacity .5s;
+  }
+  #intro.open, #result.open { opacity: 1; pointer-events: auto; }
+  .in-box { display: flex; gap: 40px; align-items: center; max-width: 820px; }
+  #inFig { flex: none; width: 250px; height: 300px; cursor: ns-resize; touch-action: none; outline: none; }
+  #inFig .tk { stroke: rgba(255,255,255,0.35); stroke-width: 1; }
+  #inFig .tl { fill: #8f949b; font-size: 10px; font-family: var(--mono); }
+  #inFig .pp { fill: #2b2e33; stroke: rgba(255,255,255,0.35); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+  #inFig .gd { stroke: rgba(255,255,255,0.5); stroke-width: 1.5; }
+  #inFig .wt { fill: rgba(150,110,60,0.55); }
+  #inFig .ws { stroke: #ffc58a; stroke-width: 2; }
+  #inFig .hd { fill: #ffc58a; stroke: #15171a; stroke-width: 2; }
+  .in-k { margin: 0; font-size: 13px; letter-spacing: 3px; color: #ffc58a; }
+  .in-q { margin: 12px 0 0; font-size: 24px; font-weight: 600; line-height: 1.55; color: #f3efe8; }
+  .in-read { margin-top: 26px; display: flex; align-items: baseline; gap: 8px; color: #c9cdd3; font-size: 15px; }
+  .in-read b { font-size: 56px; font-weight: 300; line-height: 1; color: #fff; }
+  .in-word { margin-top: 6px; font-size: 14px; color: #ffc58a; min-height: 20px; }
+  .in-hint { margin: 18px 0 0; font-size: 12px; color: #7c8189; }
+  .in-btns { display: flex; gap: 10px; margin-top: 24px; max-width: 360px; }
+  .in-btns .btn { height: 42px; font-size: 13px; }
+  .rs-box { width: min(560px, 100%); }
+  .rs-cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 20px; }
+  .rs-cmp div { padding: 16px 18px; border-radius: 14px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); }
+  .rs-cmp span { display: block; font-size: 12px; color: #8f949b; }
+  .rs-cmp b { display: inline-block; margin-top: 6px; font-size: 44px; font-weight: 300; color: #fff; }
+  .rs-cmp i { font-style: normal; margin-left: 6px; font-size: 14px; color: #c9cdd3; }
+  .rs-cmp .act b { color: #ffc58a; }
+  .rs-say { margin: 18px 0 0; font-size: 16px; line-height: 1.7; color: #e6e2dc; }
+  .rs-note { margin: 10px 0 0; font-size: 12px; line-height: 1.7; color: #7c8189; }
+  #hud .note .nt-s { display: none; }
+
+  /* ---------- 手机竖屏：读数压成两栏，底栏工具在上、时间轴在下，数据面板从底部弹出 ---------- */
+  @media (max-width: 720px) {
+    #brand { top: calc(14px + env(safe-area-inset-top)); left: 14px; right: 14px; justify-content: space-between; }
+    #brand h1 { font-size: 17px; letter-spacing: 2px; }
+    #brand p { margin-top: 4px; font-size: 11px; }
+    #btnChrome { margin-top: 0; }
+    #hud {
+      top: calc(66px + env(safe-area-inset-top)); left: 14px; margin-left: 0; width: auto; max-width: calc(100vw - 28px);
+      padding: 8px 12px 10px; background: rgba(0,0,0,0.42); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      display: grid; grid-template-columns: auto 1fr; column-gap: 18px;
+      grid-template-areas: "clock dl" "lbl dl" "hero dl" "body body" "ms ms" "note note";
+    }
+    #hud.off { transform: translateY(-16px); }
+    #hud .clock { grid-area: clock; font-size: 13px; }
+    #hud .lbl { grid-area: lbl; margin-top: 4px; font-size: 11px; }
+    #hud .hero { grid-area: hero; } #hud .hero b { font-size: 38px; }
+    #hud dl { grid-area: dl; align-self: end; margin: 0 0 4px; gap: 4px 10px; font-size: 11px; }
+    #hud dd b { font-size: 13px; }
+    #hud .grade { margin-left: 4px; padding: 0 6px; font-size: 10px; }
+    #hud .body { grid-area: body; margin-top: 4px; font-size: 13px; }
+    #hud .ms { grid-area: ms; margin-top: 3px; font-size: 11px; }
+    #hud .ms li:not(.next) { display: none; }
+    #hud .ms li.next::before { content: '下一个'; color: #8f949b; }
+    #hud .note { grid-area: note; margin-top: 3px; font-size: 10px; }
+    #hud .note .nt-l { display: none; } #hud .note .nt-s { display: inline; }
+
+    #dock {
+      left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom)); padding: 6px 10px 4px;
+      display: grid; grid-template-columns: 40px 1fr; grid-template-areas: "tools tools" "play tl"; gap: 2px 10px;
+    }
+    #dock.off { transform: translateY(20px); }
+    #btnPlay { grid-area: play; width: 40px; height: 40px; }
+    #tlWrap { grid-area: tl; }
+    #tlWrap .cap { display: none; }
+    #tl { height: 54px; }
+    .dk-tools { grid-area: tools; align-items: center; gap: 4px; }
+    .dk-tools::before { content: '拖动柱状图可跳到任意时刻'; margin-right: auto; font-size: 11px; color: #8f949b; }
+    .dk-tools button { width: 38px; height: 34px; }
+    #toast { bottom: calc(132px + env(safe-area-inset-bottom)); max-width: calc(100vw - 32px); text-align: center; }
+
+    /* 开场与结果：问题在上，示意图和读数并排，按钮在下；放不下时整页滚动 */
+    #intro, #result { overflow-y: auto; padding: calc(20px + env(safe-area-inset-top)) 18px calc(20px + env(safe-area-inset-bottom)); }
+    .in-box, .rs-box { margin: auto 0; }
+    .in-box {
+      display: grid; grid-template-columns: 130px 1fr; column-gap: 18px; align-items: center; width: 100%; max-width: 440px;
+      grid-template-areas: "k k" "q q" "fig read" "fig word" "fig hint" "btns btns";
+    }
+    .in-box > div { display: contents; }
+    #inFig { grid-area: fig; width: 130px; height: 156px; }
+    .in-k { grid-area: k; }
+    .in-q { grid-area: q; margin: 10px 0 18px; font-size: 18px; text-wrap: balance; }
+    .in-read { grid-area: read; align-self: end; margin-top: 0; } .in-read b { font-size: 46px; }
+    .in-word { grid-area: word; }
+    .in-hint { grid-area: hint; align-self: start; margin: 6px 0 0; line-height: 1.6; }
+    .in-btns { grid-area: btns; margin-top: 22px; max-width: none; }
+    .in-btns .btn { height: 46px; padding: 0 8px; }
+    .rs-cmp { gap: 10px; } .rs-cmp div { padding: 12px 14px; } .rs-cmp b { font-size: 34px; }
+    .rs-say { font-size: 15px; }
+
+    #panel {
+      top: auto; left: 0; right: 0; bottom: 0; width: auto; max-width: none; height: 86vh; height: 86dvh;
+      border-radius: 18px 18px 0 0; border-bottom: 0; padding-bottom: env(safe-area-inset-bottom);
+      transform: translateY(calc(100% + 12px));
+    }
+    .pn-head { padding: 16px 18px 10px; }
+    .pn-body { padding: 0 18px 14px; }
+    .pn-foot { padding: 12px 18px 14px; }
+    #bars { height: 130px; }
+    /* iOS 会把小于 16px 的输入框在获得焦点时放大页面 */
+    .fld input, .hr input { font-size: 16px; }
+    .hrs { gap: 6px; }
+    .btn { height: 40px; }
+
+    #about { padding: 12px; }
+    .ab-box { max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); padding: 24px 18px 20px; }
+    /* 两栏表格在窄屏上太挤：改成上下排列，画面一行、对应数据一行 */
+    .ab-box table, .ab-box tbody, .ab-box tr, .ab-box td { display: block; }
+    .ab-box th { display: none; }
+    .ab-box tr { padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .ab-box table td { padding: 0; border: 0; }
+    .ab-box table td:first-child { white-space: normal; margin-bottom: 3px; }
+  }
+
+  /* ---------- 手机横屏：高度很紧，只留读数核心与一行时间轴 ---------- */
+  @media (max-height: 500px) and (orientation: landscape) {
+    #brand { top: calc(10px + env(safe-area-inset-top)); left: calc(16px + env(safe-area-inset-left)); }
+    #brand h1 { font-size: 16px; letter-spacing: 2px; }
+    #brand p { margin-top: 3px; font-size: 10.5px; }
+    #btnChrome { width: 30px; height: 30px; margin-top: 0; }
+    #hud {
+      top: 56px; left: calc(16px + env(safe-area-inset-left)); margin-left: 0; width: auto; padding: 8px 12px 10px; background: rgba(0,0,0,0.42);
+      display: grid; grid-template-columns: auto 1fr; column-gap: 18px;
+      grid-template-areas: "clock dl" "lbl dl" "hero dl" "body body" "ms ms" "note note";
+    }
+    #hud .clock { grid-area: clock; } #hud .lbl { grid-area: lbl; } #hud .hero { grid-area: hero; }
+    #hud .body { grid-area: body; } #hud .ms { grid-area: ms; } #hud .note { grid-area: note; margin-top: 3px; }
+    #hud .clock { font-size: 13px; }
+    #hud .lbl { margin-top: 4px; font-size: 11px; }
+    #hud .hero b { font-size: 34px; }
+    #hud .body { margin-top: 4px; font-size: 12.5px; }
+    #hud .note { font-size: 10px; } #hud .note .nt-l { display: none; } #hud .note .nt-s { display: inline; }
+    #hud dl { grid-area: dl; align-self: end; margin: 0 0 4px; gap: 3px 10px; font-size: 11px; } #hud dd b { font-size: 13px; }
+    #hud .ms { margin-top: 3px; font-size: 11px; }
+    #hud .ms li:not(.next) { display: none; }
+    #hud .ms li.next::before { content: '下一个'; color: #8f949b; }
+    #dock { left: calc(12px + env(safe-area-inset-left)); right: calc(12px + env(safe-area-inset-right)); bottom: calc(8px + env(safe-area-inset-bottom)); padding: 4px 10px; gap: 10px; }
+    #btnPlay { width: 38px; height: 38px; }
+    #tlWrap .cap { display: none; }
+    #tl { height: 46px; }
+    .dk-tools button { width: 34px; height: 34px; }
+    #toast { bottom: 76px; }
+    #intro, #result { overflow-y: auto; padding: 14px 24px; }
+    .in-box, .rs-box { margin: auto 0; }
+    .in-box { gap: 28px; }
+    #inFig { width: 150px; height: 180px; }
+    .in-q { margin-top: 8px; font-size: 17px; }
+    .in-read { margin-top: 10px; } .in-read b { font-size: 40px; }
+    .in-hint { margin-top: 8px; } .in-btns { margin-top: 14px; }
+    .rs-cmp { margin-top: 12px; } .rs-cmp b { font-size: 32px; } .rs-say { margin-top: 12px; font-size: 14px; }
+    #panel { top: 8px; bottom: 8px; width: 360px; }
+    .fld input, .hr input { font-size: 16px; }
+    #about { padding: 10px; }
+    .ab-box { max-height: calc(100vh - 20px); max-height: calc(100dvh - 20px); padding: 22px 22px 18px; }
+  }
+
+  /* ---------- 触屏：没有键盘和悬停 ---------- */
+  @media (hover: none) and (pointer: coarse) {
+    .kb, #tlWrap .cap span + span { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #fade, #hud, #dock, #panel, #intro, #result, #about, #toast { transition: none; }
+  }
+  #nogl { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 24px; background: #0b0d10; color: #e8edf3; text-align: center; font-size: 14px; line-height: 2; }
+  #nogl small { display: block; color: #8f949b; font-size: 12px; }
+  #drop { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; pointer-events: none; opacity: 0; transition: opacity .2s; background: rgba(6,10,16,0.72); }
+  #drop.show { opacity: 1; }
+  #drop div { padding: 26px 40px; border-radius: 14px; border: 1.5px dashed rgba(150,190,240,0.6); color: #dfe8f3; font-size: 15px; letter-spacing: .5px; }
+
+  /* ---------- 关于作品 ---------- */
+  #about { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 24px; background: rgba(4,7,11,0.66); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); opacity: 0; pointer-events: none; transition: opacity .3s; }
+  #about.open { opacity: 1; pointer-events: auto; }
+  .ab-box { position: relative; width: min(720px, 100%); max-height: calc(100vh - 48px); overflow-y: auto; padding: 30px 32px 26px; border-radius: 16px; background: linear-gradient(180deg, rgba(27,34,44,0.97), rgba(16,21,28,0.98)); border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 30px 90px rgba(0,0,0,0.6); scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.12) transparent; }
+  .ab-box .p-close { position: absolute; top: 20px; right: 20px; }
+  .ab-box h2 { margin: 0 0 6px; font-size: 20px; font-weight: 700; color: #eef2f7; letter-spacing: .5px; }
+  .ab-lead { margin: 0 0 4px; font-size: 13px; line-height: 1.85; color: #aeb7c3; }
+  .ab-box h3 { margin: 22px 0 8px; font-size: 12.5px; font-weight: 700; color: #d3d9e1; letter-spacing: .5px; }
+  .ab-box p, .ab-box li { font-size: 12px; line-height: 1.85; color: #8d97a4; }
+  .ab-box p { margin: 0; }
+  .ab-box ul { margin: 0; padding-left: 18px; }
+  .ab-box b { color: #c9d1db; font-weight: 600; }
+  .ab-box table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .ab-box th, .ab-box td { padding: 7px 8px; text-align: left; vertical-align: top; border-bottom: 1px solid rgba(255,255,255,0.06); line-height: 1.6; }
+  .ab-box th { color: #6e7886; font-weight: 400; font-size: 11px; }
+  .ab-box td { color: #a6afbb; }
+  .ab-box td:first-child { color: #d3d9e1; white-space: nowrap; }
+  #abSource { color: #a6afbb; }
+
+  #toast { position: fixed; left: 50%; bottom: 140px; transform: translate(-50%, 10px); z-index: 60; padding: 8px 16px; border-radius: 18px; font-size: 12px; color: #dfe6ef; background: rgba(30,38,50,0.85); border: 1px solid rgba(255,255,255,0.1); opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body>
+<canvas id="scene" tabindex="0"></canvas>
+
+<header id="brand">
+  <div>
+    <h1>一场雨有多深</h1>
+    <p id="place"></p>
+  </div>
+  <button id="btnChrome" title="收起界面，只看画面">
+    <svg class="i-hide" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M1.6 9S4.4 4.2 9 4.2 16.4 9 16.4 9 13.6 13.8 9 13.8 1.6 9 1.6 9z"/><circle cx="9" cy="9" r="2.4"/>
+    </svg>
+    <svg class="i-show" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2.6 9.6C3.9 7.2 6.2 5.6 9 5.6c1 0 1.9.2 2.7.6M15.4 8.4c-.6 1-1.4 1.9-2.4 2.6"/>
+      <path d="M3.4 3.4l11.2 11.2"/><circle cx="9" cy="10.6" r="1.7"/>
+    </svg>
+  </button>
+</header>
+
+<section id="hud" aria-live="off">
+  <div class="clock" id="hClock">00:00</div>
+  <div class="lbl">地面积水深度</div>
+  <div class="hero"><b id="hDepth">0.0</b><span>厘米</span></div>
+  <div class="body" id="hBody"></div>
+  <div class="note"><span class="nt-l">按“雨水既不排走、也不汇流”计算，等于从 00:00 起的累计降雨量。实际积水还取决于排水和地势。</span><span class="nt-s">按不排水、不汇流换算，不是实际积水深度</span></div>
+  <dl>
+    <dt>这一小时</dt><dd><b id="hRate">0.0</b>毫米<span class="grade" id="hGrade"></span></dd>
+    <dt>已累计</dt><dd><b id="hSum">0.0</b>毫米</dd>
+  </dl>
+  <ol class="ms" id="hList" aria-label="水位已经没过的高度"></ol>
+</section>
+
+<footer id="dock">
+  <button id="btnPlay" title="播放">
+    <svg class="i-play" width="16" height="16" viewBox="0 0 16 16"><path d="M4.5 2.8v10.4L13 8z" fill="currentColor"/></svg>
+    <svg class="i-pause" width="16" height="16" viewBox="0 0 16 16"><path d="M4 3h3v10H4zM9 3h3v10H9z" fill="currentColor"/></svg>
+  </button>
+  <div id="tlWrap">
+    <div class="cap"><span>每小时降雨量 · 拖动可跳到任意时刻</span><span>空格 播放/暂停　← → 逐小时</span></div>
+    <svg id="tl" aria-label="全天逐时降雨量"></svg>
+    <div id="tlTip"></div>
+  </div>
+  <div class="dk-tools">
+    <button id="btnPanel" title="数据：编辑、导入、导出报告">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3 13V8M8 13V3M13 13V6"/></svg>
+    </button>
+    <button id="btnSound" title="雨声（开/关）">
+      <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2 5.2h2.2L7.2 2.6v8.8L4.2 8.8H2z"/>
+        <path class="w1" d="M9.3 5.1a2.6 2.6 0 0 1 0 3.8"/>
+        <path class="w2" d="M10.9 3.5a5 5 0 0 1 0 7"/>
+        <path class="mute" d="M9.2 5.2l3.4 3.6M12.6 5.2l-3.4 3.6"/>
+      </svg>
+    </button>
+    <button id="btnAbout" title="关于作品">
+      <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><circle cx="7" cy="7" r="5.4"/><path d="M7 6.3v3.4"/><circle cx="7" cy="4.3" r=".55" fill="currentColor" stroke="none"/></svg>
+    </button>
+  </div>
+</footer>
+
+<aside id="panel" aria-label="这一天的雨：数据">
+  <div class="pn-head">
+    <div>
+      <h2>这一天的雨</h2>
+      <p>改动会立即反映到街道上，并保存在本机浏览器里。</p>
+    </div>
+    <button class="p-close" id="btnClose" title="关闭">
+      <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg>
+    </button>
+  </div>
+  <div class="pn-body">
+    <section class="pn-sec">
+      <h3>地点与日期</h3>
+      <div class="pn-row">
+        <label class="fld">地点<input id="metaRegion" placeholder="如：杭州市" maxlength="30" spellcheck="false"></label>
+        <label class="fld">日期<input id="metaDate" type="date"></label>
+      </div>
+    </section>
+
+    <section class="pn-sec">
+      <h3>每小时雨量<small>单位：毫米</small></h3>
+      <div class="bars-read"><span id="barsT">16–17 时</span><span><b id="barsV">0.0</b>毫米 · <span id="barsG"></span></span></div>
+      <svg id="bars" tabindex="0" aria-label="每小时雨量，可拖动修改"></svg>
+      <div class="bars-hint">在柱子上按住上下拖动即可修改，横向拖动可连续修改多个小时。</div>
+      <div class="hrs" id="hrs"></div>
+      <div class="pn-sum" id="pnSum"></div>
+    </section>
+
+    <section class="pn-sec">
+      <h3>换一场雨<small>CSV · JSON</small></h3>
+      <div class="pn-btns">
+        <button class="btn" id="btnImport">导入数据文件</button>
+        <button class="btn" id="lnkTemplate">下载填写模板</button>
+      </div>
+      <div class="io-note" id="ioNote">文件里需要有每小时的雨量；也可以直接把文件拖进页面。模板里已经填好了当前数据，可以对照修改。</div>
+      <div class="pn-links"><button class="pn-link" id="lnkUndo" hidden>撤销这次导入</button></div>
+      <input type="file" id="fileInput" accept=".csv,.txt,.json,text/csv,application/json" hidden>
+    </section>
+
+    <section class="pn-sec">
+      <h3>降雨日报<small>PNG 图片</small></h3>
+      <div class="pn-btns"><button class="btn pri" id="btnExport">生成并下载日报</button></div>
+      <div class="io-note">包含关键数字、每小时雨量图、等级配色的数据表和一段自动生成的文字总结。</div>
+    </section>
+  </div>
+  <div class="pn-foot"><button class="pn-link" id="btnReset">换回 2021 年郑州“7·20”的数据</button></div>
+</aside>
+
+<div id="intro" role="dialog" aria-modal="true" aria-labelledby="inQ">
+  <div class="in-box">
+    <svg id="inFig" viewBox="0 0 250 300" tabindex="0" aria-label="拖动水面高度来猜积水深度"></svg>
+    <div>
+      <p class="in-k">先 猜 一 猜</p>
+      <h2 class="in-q" id="inQ"></h2>
+      <div class="in-read"><b id="inVal">20</b>厘米</div>
+      <div class="in-word" id="inWord"></div>
+      <p class="in-hint">在左边的图上拖动水面<span class="kb">，或者按 ↑ ↓ 键</span>调整。</p>
+      <div class="in-btns">
+        <button class="btn pri" id="inGo">看看实际有多深</button>
+        <button class="btn" id="inSkip">不猜了，直接看</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="result" role="dialog" aria-modal="true" aria-labelledby="rsT">
+  <div class="rs-box">
+    <p class="in-k" id="rsT">结 果</p>
+    <div class="rs-cmp">
+      <div><span>你猜的</span><b id="rsG">0</b><i>厘米</i></div>
+      <div class="act"><span>这一天实际的累计雨量相当于</span><b id="rsA">0</b><i>厘米</i></div>
+    </div>
+    <p class="rs-say" id="rsSay"></p>
+    <p class="rs-note">“积水深度”按雨水既不排走、也不汇流计算，等于这一天的累计降雨量。真实的城市里，排水会让积水变浅，低洼处的汇流又会让积水深得多。</p>
+    <div class="in-btns">
+      <button class="btn pri" id="rsAgain">再看一遍</button>
+      <button class="btn" id="rsGuess">重新猜</button>
+      <button class="btn" id="rsClose">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div id="about" role="dialog" aria-modal="true" aria-labelledby="abTitle">
+  <div class="ab-box">
+    <button class="p-close" id="btnAboutClose" title="关闭">
+      <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg>
+    </button>
+    <h2 id="abTitle">一场雨有多深</h2>
+    <p class="ab-lead">“每小时 201.9 毫米”是多大的雨？天气预报里的毫米很精确，却很难让人有体感。本作品把一天的逐时降雨量放到一条普通的街道上：雨下得多大，就让它下多大；下了多少，就让水涨多高，再用路沿、车门、膝盖这些身边熟悉的高度去量它。</p>
+
+    <h3>画面与数据的对应</h3>
+    <table>
+      <tr><th>画面</th><th>对应的数据</th></tr>
+      <tr><td>播放进度</td><td>00:00 到 24:00，每小时约 2.5 秒；底部的柱状图是每小时雨量，可以拖动跳到任意时刻</td></tr>
+      <tr><td>雨丝密度、雾气、远处能见度</td><td>当前这一小时的雨量。以每小时 200 毫米为满档、开平方映射；这把尺子对所有数据都一样，不随当天最大值缩放，小雨就显示为小雨</td></tr>
+      <tr><td>积水深度</td><td>从 00:00 起的累计雨量：1 毫米雨对应 1 毫米水深。按“雨水既不排走、也不汇流”计算，用来理解雨量，不是对实际积水的模拟</td></tr>
+      <tr><td>水尺与“已没过”清单</td><td>路沿 15 cm、车门下沿 30 cm、店门口两级台阶 45 cm、成年人膝盖 50 cm、公交站座椅 57 cm、轮胎顶 65 cm、孩子腰高 70 cm、引擎盖 90 cm、成年人腰 1 m、孩子身高 1.2 m、成年人身高 1.7 m。这些是常见的近似高度</td></tr>
+      <tr><td>雨声</td><td>由程序实时合成，响度和雨滴声的频率跟随当前雨势（右下角开启）</td></tr>
+      <tr><td>人物动作、镜头推拉与晃动、汽车双闪</td><td>叙事和氛围表现，跟随水位和雨势变化，不代表额外的数据</td></tr>
+    </table>
+
+    <h3>当前数据</h3>
+    <p id="abSource"></p>
+
+    <h3>数据处理</h3>
+    <ul>
+      <li>每小时的数值表示该小时内的降雨量（毫米），也就是小时雨强（毫米/小时）。</li>
+      <li>导入时会自动识别“时段末”标注（01–24 时）、把分钟级数据按小时累加、用前后插值补齐缺测，并在面板里列出所做的处理。</li>
+      <li>全天累计按自然日 00–24 时计算。气象部门发布的“日降水量”常按 08 时至次日 08 时统计，时间窗不同，数值可能有差异。</li>
+    </ul>
+
+    <h3>等级标准</h3>
+    <p>降水等级依据国家标准 GB/T 28592-2012《降水量等级》：1 小时雨量 0.1–1.5 mm 为小雨、1.6–6.9 mm 为中雨、7.0–14.9 mm 为大雨、15.0–39.9 mm 为暴雨、40.0–49.9 mm 为大暴雨、≥50.0 mm 为特大暴雨；24 小时雨量分别以 0.1、10、25、50、100、250 mm 为界。</p>
+
+    <h3>操作</h3>
+    <ul>
+      <li>空格键播放 / 暂停，← → 键逐小时跳转；拖动底部柱状图跳到任意时刻。</li>
+      <li>拖动画面旋转视角，滚轮缩放，右键平移；镜头动过后自动推拉会停下，双击画面恢复。</li>
+      <li>手机和平板上：单指拖动旋转视角，双指捏合缩放、双指拖动平移，双击画面恢复自动镜头；拖动底部柱状图跳到任意时刻。</li>
+      <li>右下角按钮依次为：数据（修改、导入、导出日报）、雨声、关于作品。</li>
+      <li>标题旁的按钮可以收起读数面板和底部控制栏，只看画面；收起后播放和按键仍然有效，再点一次恢复。</li>
+    </ul>
+
+    <h3>技术与第三方资源</h3>
+    <p>基于 WebGL，使用 three.js r147 与 OrbitControls（MIT 许可）；随机哈希函数采用 David Hoskins 的 “Hash without Sine”（MIT 许可）。街道、楼房、汽车和人物均由代码生成，雨、积水、倒影、雾气与泛光为自写着色器，雨声由 Web Audio 程序合成；没有使用外部图片、模型、音频或字体文件，离线可运行。</p>
+  </div>
+</div>
+
+<div id="toast"></div>
+<div id="drop"><div>松开以导入降雨数据</div></div>
+<div id="fade"></div>
+
+<script src="lib/three.min.js"></script>
+<script src="lib/OrbitControls.js"></script>
+<script>
+(function () {
+'use strict';
+
+/* =====================================================================
+ * 数据
+ * ===================================================================== */
+// 默认数据：2021 年 7 月 20 日郑州国家气象站逐时降雨量（mm），00–01 时 … 23–24 时，末位为次日 00–01 时
+// 详见 data/郑州_2021-07-20.csv 与 参赛材料/数据说明
+const DEFAULT_DATA = [4.1, 2.5, 1.3, 8.1, 11.3, 20.7, 6.8, 6.6, 10.2, 11.9, 18.2, 7.0,
+                      13.6, 30.6, 12.3, 60.6, 201.9, 48.3, 28.7, 22.5, 27.7, 25.0, 21.9, 11.1, 13.4];
+const DEFAULT_META = {
+  region: '郑州市（郑州国家气象站）', date: '2021-07-20', file: '', edited: false,
+  source: '郑州国家气象站逐时观测（公开整理数据），已与中国气象局公布的最大小时雨量 201.9 mm（20 日 16–17 时）、日降水量 624.1 mm（20 日 08 时至 21 日 08 时）核对一致',
+};
+const STORE_KEY = 'rain-viz-data-v2';
+const META_KEY = 'rain-viz-meta-v2';
+const MAX_VAL = 250;
+
+const round1 = v => Math.round(v * 10) / 10;
+const clampVal = v => Math.min(MAX_VAL, Math.max(0, round1(v)));
+const hh = h => String(h).padStart(2, '0') + ':00';
+const pad2 = n => String(n).padStart(2, '0');
+
+function loadData() {
+  try {
+    const d = JSON.parse(localStorage.getItem(STORE_KEY));
+    if (Array.isArray(d) && d.length === 25 && d.every(v => typeof v === 'number' && isFinite(v))) return d.map(clampVal);
+  } catch (e) {}
+  return DEFAULT_DATA.slice();
+}
+function saveData() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch (e) {}
+}
+let data = loadData();
+
+// 数据的地区、日期、来源和来源文件（导入时写入，也可在面板里手动填）
+function blankMeta() { return { region: '', date: '', file: '', edited: false, source: '' }; }
+function loadMeta() {
+  try {
+    const m = JSON.parse(localStorage.getItem(META_KEY));
+    if (m && typeof m === 'object') return { region: String(m.region || ''), date: String(m.date || ''), file: String(m.file || ''), edited: !!m.edited, source: String(m.source || '') };
+  } catch (e) {}
+  return { ...DEFAULT_META };
+}
+function saveMeta() {
+  try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch (e) {}
+}
+let meta = loadMeta();
+
+// 坐标轴顶值：最大值 × 1.28，取整到好看的数（10 → 12.8，15.7 → 20）
+function axisTopFor(vals) {
+  const m = Math.max(0.5, ...vals);
+  const v = m * 1.28;
+  if (v < 15) return round1(v);
+  let top = Math.round(v / 5) * 5;
+  if (top < m * 1.1) top += 5;
+  return top;
+}
+const fmtTick = v => (Math.abs(v - Math.round(v)) < 1e-6 ? String(Math.round(v)) : v.toFixed(1));
+
+function valueAt(t) {
+  t = Math.min(24, Math.max(0, t));
+  const i = Math.min(23, Math.floor(t));
+  return data[i] + (data[i + 1] - data[i]) * (t - i);
+}
+
+/* =====================================================================
+ * 场景：夜里的街道。路边停着一辆小轿车，对面是便利店和公交站，
+ * 一个成年人撑着伞、牵着孩子站在路上。单位：米，y = 0 为路面。
+ * 雨势跟随当前时刻的小时雨强；积水深度 = 从 00:00 起累计的降雨量（毫米 → 米），
+ * 假设雨水既不排走也不汇流。
+ * ===================================================================== */
+const RAIN_REF = 200;   // 视觉满档对应的小时雨强（mm/h）：所有数据共用这一把尺子，不随当天最大值缩放
+const rainLevel = v => Math.min(1, Math.sqrt(Math.max(0, v) / RAIN_REF));
+const CURB_H = 0.15;
+const CURB_FAR = -3.0;      // 对面人行道：z < CURB_FAR
+const CURB_NEAR = 5.0;      // 近处人行道：z > CURB_NEAR
+const FACADE_Z = -9.5;      // 对面临街立面
+const GAUGE = new THREE.Vector3(2.15, 0, -0.9);
+// 参照物高度（从路面算起，米）
+const MILESTONES = [
+  [0.15, '路沿'],
+  [0.30, '汽车车门下沿'],
+  [0.45, '店门口的两级台阶'],
+  [0.50, '成年人的膝盖'],
+  [0.57, '公交站的座椅'],
+  [0.65, '汽车轮胎顶'],
+  [0.70, '孩子的腰高'],
+  [0.90, '汽车引擎盖'],
+  [1.00, '成年人的腰'],
+  [1.20, '孩子的身高'],
+  [1.70, '成年人的头顶'],
+];
+const RX0 = -18, RX1 = 18, RZ0 = -13, RZ1 = 10, RTOP = 11;   // 雨区
+
+const canvas = document.getElementById('scene');
+// 设备不支持 WebGL 时给出提示，而不是一片黑屏
+function noGL(msg, sub) {
+  const fade = document.getElementById('fade');
+  if (fade) fade.remove();
+  const el = document.createElement('div');
+  el.id = 'nogl';
+  el.innerHTML = `<div>${msg}<small>${sub}</small></div>`;
+  document.body.appendChild(el);
+}
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+} catch (e) {
+  noGL('本作品需要 WebGL 支持', '请用最新版 Chrome / Edge / Safari 打开，或在浏览器设置中开启硬件加速');
+  return;
+}
+canvas.addEventListener('webglcontextlost', e => {
+  e.preventDefault();
+  noGL('图形上下文已丢失，正在恢复…', '如果长时间没有恢复，请刷新页面');
+  setTimeout(() => location.reload(), 1500);
+});
+// 触屏设备（手机、平板）的显卡通常较弱：像素比上限更低，粒子也从较少开始，之后仍由自适应画质调整
+const isTouch = window.matchMedia('(pointer: coarse)').matches;
+let pixelRatio = Math.min(window.devicePixelRatio || 1, isTouch ? 1.5 : 2);
+renderer.setPixelRatio(pixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight, false);
+renderer.setClearColor(0x000000, 1);
+
+const FOV = 42;
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, 0.2, 300);
+camera.position.set(1.4, 3.0, 15.5);
+
+const controls = new THREE.OrbitControls(camera, canvas);
+controls.target.set(-0.4, 1.35, -3.0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.rotateSpeed = 0.5;
+controls.zoomSpeed = 0.8;
+controls.panSpeed = 0.5;
+controls.minDistance = 2;
+controls.maxDistance = 32;
+controls.maxPolarAngle = Math.PI * 0.53;
+controls.update();
+
+/* ---------- 光源：路灯、橱窗、招牌、灯箱、汽车双闪 ---------- */
+// [位置, 颜色 × 强度, 朝向, 光锥（cos，-2 表示不限）]
+const LIGHTS = [
+  [[-3.0, 6.1, -2.7], [1.0, 0.58, 0.28], 13, [0.12, -1, 0.22], 0.35],   // 路灯 A（钠灯）
+  [[8.6, 6.1, -2.7], [1.0, 0.58, 0.28], 13, [-0.12, -1, 0.22], 0.35],   // 路灯 B
+  [[-3.9, 1.7, -9.0], [1.0, 0.86, 0.66], 6, [0, -0.15, 1], -0.25],     // 便利店橱窗（左）
+  [[1.3, 1.7, -9.0], [1.0, 0.86, 0.66], 6, [0, -0.15, 1], -0.25],      // 便利店橱窗（右）
+  [[-1.4, 3.0, -9.1], [1.0, 0.22, 0.30], 4, [0, -0.3, 1], -0.3],       // 红色招牌
+  [[7.0, 1.4, -6.2], [0.62, 0.80, 1.0], 6, [0, 0, 1], -0.3],           // 公交站灯箱
+  [[-6.95, 0.75, -1.1], [1.0, 0.55, 0.08], 0, [0, 0, 1], -2],          // 双闪（车尾）
+  [[-2.25, 0.75, -1.1], [1.0, 0.55, 0.08], 0, [0, 0, 1], -2],          // 双闪（车头）
+];
+const NL = LIGHTS.length;
+const uLP = LIGHTS.map(l => new THREE.Vector3(...l[0]));
+const uLC = LIGHTS.map(l => new THREE.Vector3(...l[1]).multiplyScalar(l[2]));
+const uLD = LIGHTS.map(l => { const d = new THREE.Vector3(...l[3]).normalize(); return new THREE.Vector4(d.x, d.y, d.z, l[4]); });
+const HAZARD = [6, 7], HAZARD_I = 3.2;
+
+const uniforms = {
+  uTime: { value: 0 },
+  uRain: { value: 0 },      // 0–1，rainLevel(当前小时雨强)
+  uLevel: { value: 0 },     // 积水深度（米）
+  uWet: { value: 0 },       // 0–1：路面从湿到积水
+  uHazard: { value: 0 },
+  uLP: { value: uLP }, uLC: { value: uLC }, uLD: { value: uLD },
+  uAlpha: { value: 1 },
+  uPR: { value: pixelRatio },
+  uScale: { value: window.innerHeight / 2 / Math.tan(THREE.MathUtils.degToRad(FOV / 2)) },
+  uReflPass: { value: 0 },
+  uMistSteps: { value: 18 },
+};
+
+const GLSL_COMMON = `
+  uniform vec3 uLP[${NL}], uLC[${NL}];
+  uniform vec4 uLD[${NL}];
+  uniform float uRain;
+  const vec3 AMB = vec3(0.05, 0.045, 0.05);   // 城市夜空的漫射光
+  // hash11 / hash12 / hash13: "Hash without Sine" by David Hoskins (MIT License), https://www.shadertoy.com/view/4djSRW
+  float hash11(float p) { p = fract(p * 0.1031); p *= p + 33.33; p *= p + p; return fract(p); }
+  float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+  float hash13(vec3 p3) { p3 = fract(p3 * 0.1031); p3 += dot(p3, p3.zyx + 31.32); return fract((p3.x + p3.y) * p3.z); }
+  float vnoise(vec3 p) {
+    vec3 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(hash13(i), hash13(i + vec3(1, 0, 0)), f.x),
+                   mix(hash13(i + vec3(0, 1, 0)), hash13(i + vec3(1, 1, 0)), f.x), f.y),
+               mix(mix(hash13(i + vec3(0, 0, 1)), hash13(i + vec3(1, 0, 1)), f.x),
+                   mix(hash13(i + vec3(0, 1, 1)), hash13(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+  }
+  // 第 i 盏灯在 p 处的照度（颜色）与方向
+  vec3 lightI(int i, vec3 p, out vec3 L) {
+    vec3 d = uLP[i] - p;
+    float r2 = dot(d, d);
+    L = d * inversesqrt(r2);
+    float c = dot(-L, uLD[i].xyz);
+    float cone = uLD[i].w < -1.5 ? 1.0 : smoothstep(uLD[i].w, uLD[i].w + 0.4, c);
+    return uLC[i] * cone / (r2 + 0.8);
+  }
+  vec3 lightAt(vec3 p) {
+    vec3 s = vec3(0.0), L;
+    for (int i = 0; i < ${NL}; i++) s += lightI(i, p, L);
+    return s;
+  }
+  // 远处被雨幕遮住：雨越大，能看清的距离越短
+  vec3 rainFog(vec3 col, vec3 p) {
+    float d = length(p - cameraPosition);
+    float f = 1.0 - exp(-max(d - 10.0, 0.0) * (0.012 + 0.07 * uRain * uRain));
+    return mix(col, vec3(0.03, 0.028, 0.03) + AMB * 0.2 * (1.0 + uRain), f);
+  }
+`;
+const glf = v => v.toFixed(3);
+const hidePos = 'gl_Position = vec4(0.0, 0.0, -2.0, 1.0)';
+
+/* ---------- 雨丝：被灯照到的地方才亮 ---------- */
+const RAIN_N = 100000;
+function buildRain() {
+  const seed = new Float32Array(RAIN_N * 2 * 4);
+  const misc = new Float32Array(RAIN_N * 2 * 3);
+  for (let i = 0; i < RAIN_N; i++) {
+    const s = [Math.random(), Math.random(), Math.random(), Math.random()];
+    const sp = Math.random(), br = Math.pow(Math.random(), 1.4);
+    for (let k = 0; k < 2; k++) {
+      const j = i * 2 + k;
+      seed.set(s, j * 4);
+      misc.set([k, sp, br], j * 3);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(RAIN_N * 2 * 3), 3));
+  g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 4));
+  g.setAttribute('aMisc', new THREE.BufferAttribute(misc, 3));
+  const m = new THREE.ShaderMaterial({
+    uniforms,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: GLSL_COMMON + `
+      uniform float uTime, uLevel, uAlpha;
+      attribute vec4 aSeed;   // x, z, 相位, 密度阈值
+      attribute vec3 aMisc;   // 端点(0 尾 / 1 头), 速度随机, 亮度随机
+      varying float vA;
+      varying float vT;
+      varying vec3 vC;
+      void main() {
+        if (aSeed.w > uRain) { ${hidePos}; vA = 0.0; vT = 0.0; vC = vec3(0.0); return; }
+        float x = mix(${glf(RX0)}, ${glf(RX1)}, aSeed.x), z = mix(${glf(RZ0)}, ${glf(RZ1)}, aSeed.y);
+        float speed = 8.5 + 2.5 * aMisc.y;
+        float len = 0.35 + 0.35 * aMisc.y + 0.35 * uRain;
+        float cyc = ${glf(RTOP)} - uLevel + len;
+        float head = ${glf(RTOP)} - mod(uTime * speed + aSeed.z * cyc * 7.0, cyc);
+        float y = clamp(head + (1.0 - aMisc.x) * len, uLevel, ${glf(RTOP)});
+        vec3 p = vec3(x - 0.06 * y, y, z);
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        float near = smoothstep(2.5, 7.0, -mv.z);
+        vC = lightAt(p) * 0.8 + AMB * 1.2;
+        vA = uAlpha * (0.06 + 0.18 * aMisc.z) * near;
+        vT = aMisc.x;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      varying float vA;
+      varying float vT;
+      varying vec3 vC;
+      void main() {
+        float ends = smoothstep(0.0, 0.25, vT) * smoothstep(1.0, 0.7, vT);
+        gl_FragColor = vec4(vC, vA * ends);
+      }`,
+  });
+  const lines = new THREE.LineSegments(g, m);
+  lines.frustumCulled = false;
+  return lines;
+}
+
+/* ---------- 溅起的水花：每 6 颗水珠一组，同一落点 ---------- */
+const SPLASH_GROUPS = 9000, SPLASH_K = 6, SPLASH_N = SPLASH_GROUPS * SPLASH_K;
+function buildSplash() {
+  const seed = new Float32Array(SPLASH_N * 4);
+  const rnd = new Float32Array(SPLASH_N * 3);
+  for (let i = 0; i < SPLASH_GROUPS; i++) {
+    const s = [Math.random(), Math.random(), Math.random(), Math.random()];
+    for (let k = 0; k < SPLASH_K; k++) {
+      const j = i * SPLASH_K + k;
+      seed.set(s, j * 4);
+      rnd.set([(k + Math.random() * 0.6) / SPLASH_K * Math.PI * 2, Math.random(), Math.random()], j * 3);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SPLASH_N * 3), 3));
+  g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 4));
+  g.setAttribute('aRnd', new THREE.BufferAttribute(rnd, 3));
+  const m = new THREE.ShaderMaterial({
+    uniforms,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: GLSL_COMMON + `
+      uniform float uTime, uLevel, uPR, uScale, uAlpha;
+      attribute vec4 aSeed;
+      attribute vec3 aRnd;
+      varying float vA;
+      varying vec3 vC;
+      void main() {
+        if (aSeed.w > uRain) { ${hidePos}; vA = 0.0; vC = vec3(0.0); return; }
+        float P = 0.45 + 0.35 * aSeed.w;
+        float tt = uTime / P + aSeed.z;
+        float k = floor(tt), s = fract(tt) / 0.3;
+        if (s >= 1.0) { ${hidePos}; vA = 0.0; vC = vec3(0.0); return; }
+        vec2 c = vec2(mix(${glf(RX0 + 0.5)}, ${glf(RX1 - 0.5)}, hash11(k * 7.13 + aSeed.x * 91.0)),
+                      mix(${glf(FACADE_Z + 0.2)}, ${glf(RZ1 - 0.5)}, hash11(k * 3.71 + aSeed.y * 57.0)));
+        // 人行道高出路面，水还没漫上去时水花落在人行道上
+        bool walk = c.y < ${glf(CURB_FAR)} || c.y > ${glf(CURB_NEAR)};
+        float base = walk ? max(uLevel, ${glf(CURB_H)}) : uLevel;
+        float r = (0.03 + 0.07 * aRnd.y) * (0.6 + 0.6 * uRain) * sqrt(s);
+        float y = base + (0.03 + 0.09 * aRnd.z) * (0.5 + uRain) * 4.0 * s * (1.0 - s);
+        vec3 p = vec3(c.x + cos(aRnd.x) * r, y, c.y + sin(aRnd.x) * r);
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_PointSize = clamp((0.014 + 0.014 * aRnd.z) * uScale * uPR / -mv.z, 1.0, 4.0 * uPR);
+        vC = lightAt(p) * 1.3 + AMB;
+        vA = uAlpha * pow(1.0 - s, 1.5) * 0.5;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      varying float vA;
+      varying vec3 vC;
+      void main() {
+        float a = smoothstep(0.5, 0.1, length(gl_PointCoord - 0.5));
+        gl_FragColor = vec4(vC, a * vA);
+      }`,
+  });
+  const pts = new THREE.Points(g, m);
+  pts.frustumCulled = false;
+  return pts;
+}
+
+/* ---------- 材质 ---------- */
+const SOLID_VERT = `
+  varying vec3 vW, vN;
+  varying vec2 vUv;
+  void main() {
+    vec4 w = modelMatrix * vec4(position, 1.0);
+    vW = w.xyz;
+    vN = normalize(mat3(modelMatrix) * normal);
+    vUv = uv;
+    gl_Position = projectionMatrix * viewMatrix * w;
+  }`;
+// 受光实体：opt.map 为反照率贴图，opt.emitMap 为自发光贴图（窗户、灯箱）
+function solidMat(color, opt = {}) {
+  return new THREE.ShaderMaterial({
+    uniforms: Object.assign({
+      uColor: { value: new THREE.Color(color) },
+      uMap: { value: opt.map || null }, uUseMap: { value: opt.map ? 1 : 0 },
+      uEmitMap: { value: opt.emitMap || null }, uUseEmitMap: { value: opt.emitMap ? 1 : 0 },
+      uEmit: { value: new THREE.Color(opt.emit || 0x000000) },
+      uSpec: { value: opt.spec == null ? 0.2 : opt.spec },
+      uShine: { value: opt.shine || 40 },
+      uHazMask: { value: opt.hazard ? 1 : 0 },
+    }, uniforms),
+    side: opt.side || THREE.FrontSide,
+    vertexShader: SOLID_VERT,
+    fragmentShader: GLSL_COMMON + `
+      uniform vec3 uColor, uEmit;
+      uniform sampler2D uMap, uEmitMap;
+      uniform float uUseMap, uUseEmitMap, uSpec, uShine, uReflPass, uLevel, uWet, uHazMask, uHazard;
+      varying vec3 vW, vN;
+      varying vec2 vUv;
+      void main() {
+        if (uReflPass > 0.5 && vW.y < uLevel - 0.002) discard;
+        vec3 N = normalize(vN);
+        if (!gl_FrontFacing) N = -N;
+        vec3 V = normalize(cameraPosition - vW);
+        vec3 alb = uColor;
+        if (uUseMap > 0.5) alb *= texture2D(uMap, vUv).rgb;
+        // 淋湿的表面更暗、更亮泽
+        float wet = smoothstep(0.0, 0.4, uRain);
+        alb *= 1.0 - 0.3 * wet;
+        float ks = uSpec + 0.35 * wet;
+        vec3 col = alb * AMB * (0.6 + 0.4 * max(N.y, 0.0));
+        for (int i = 0; i < ${NL}; i++) {
+          vec3 L;
+          vec3 E = lightI(i, vW, L);
+          float nl = max(dot(N, L), 0.0);
+          col += alb * E * nl;
+          col += E * pow(max(dot(N, normalize(L + V)), 0.0), uShine) * ks * nl;
+          // 逆光轮廓：灯在物体背后时，边缘透出一圈光
+          float back = max(dot(L, -V), 0.0);
+          col += E * pow(1.0 - max(dot(N, V), 0.0), 4.0) * back * 0.35;
+        }
+        vec3 em = uEmit;
+        if (uUseEmitMap > 0.5) em *= texture2D(uEmitMap, vUv).rgb;
+        col += em * mix(1.0, uHazard, uHazMask);
+        // 水线：物体与水面相交处一圈亮边
+        float wl = uLevel > 0.005 ? exp(-pow((vW.y - uLevel) / 0.015, 2.0)) : 0.0;
+        col += (lightAt(vW) * 0.25 + AMB * 0.6) * wl;
+        gl_FragColor = vec4(rainFog(col, vW), 1.0);
+      }`,
+  });
+}
+
+/* ---------- 程序生成的贴图 ---------- */
+const FONT = getComputedStyle(document.documentElement).getPropertyValue('--font');
+const MONO_FONT = getComputedStyle(document.documentElement).getPropertyValue('--mono');
+const pow2 = n => Math.min(2048, Math.pow(2, Math.ceil(Math.log2(n))));
+function canvasTex(w, h, draw) {
+  let c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  // 统一缩放到 2 的幂尺寸，WebGL 1 下也能生成 mipmap，远处不闪烁
+  if (pow2(w) !== w || pow2(h) !== h) {
+    const c2 = document.createElement('canvas');
+    c2.width = pow2(w); c2.height = pow2(h);
+    c2.getContext('2d').drawImage(c, 0, 0, c2.width, c2.height);
+    c = c2;
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+// 伪随机（固定种子，每次打开画面一致）
+function rng(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
+
+// 把多块几何体（各自带变换矩阵）合并成一块，减少绘制次数
+function mergeGeos(parts) {
+  const pos = [], nor = [], uv = [];
+  parts.forEach(([geo, mat]) => {
+    const g = (geo.index ? geo.toNonIndexed() : geo.clone()).applyMatrix4(mat);
+    const p = g.attributes.position.array, n = g.attributes.normal.array, u = g.attributes.uv ? g.attributes.uv.array : null;
+    for (let i = 0; i < p.length; i++) { pos.push(p[i]); nor.push(n[i]); }
+    for (let i = 0; i < p.length / 3; i++) { uv.push(u ? u[i * 2] : 0, u ? u[i * 2 + 1] : 0); }
+  });
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  out.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return out;
+}
+const _m4 = new THREE.Matrix4();
+const at = (x, y, z) => _m4.clone().makeTranslation(x, y, z);
+
+// 临街楼立面：返回 { map, emitMap }。PX 像素 / 米
+// opt.geoWindows 为真时窗户另用几何体搭建，立面贴图上只画墙面
+function facadeTextures(W, H, opt) {
+  const PX = 48, w = Math.ceil(W * PX / 4) * 4, h = Math.ceil(H * PX / 4) * 4, R = rng(opt.seed);
+  const y = m => h - m * PX, x = m => m * PX;
+  const map = canvasTex(w, h, (ctx) => {
+    ctx.fillStyle = opt.wall; ctx.fillRect(0, 0, w, h);
+    for (let i = 0; i < 1800; i++) { ctx.fillStyle = `rgba(0,0,0,${R() * 0.08})`; ctx.fillRect(R() * w, R() * h, 2 + R() * 30, 2 + R() * 6); }
+    // 雨水顺墙流下的水渍
+    for (let i = 0; i < 60; i++) { ctx.fillStyle = `rgba(0,0,0,${0.04 + R() * 0.08})`; ctx.fillRect(R() * w, R() * h * 0.6, 2 + R() * 6, R() * h * 0.4); }
+    // 楼层分隔线
+    for (let f = 1; f * 3 < H; f++) { ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(0, y(f * 3 + 0.3), w, 0.15 * PX); }
+    // 窗洞
+    opt.windows.forEach(([wx, wy, ww, wh]) => { ctx.fillStyle = '#111214'; ctx.fillRect(x(wx) - 3, y(wy + wh) - 3, x(ww) + 6, x(wh) + 6); });
+    if (opt.shop) {
+      ctx.fillStyle = '#16171a'; ctx.fillRect(0, y(3.4), w, 3.4 * PX);
+      ctx.fillStyle = '#2a2c30'; ctx.fillRect(0, y(3.6), w, 0.2 * PX);
+    } else if (opt.shutter) {
+      ctx.fillStyle = '#5a5c5f'; ctx.fillRect(x(0.4), y(2.8), w - x(0.8), 2.8 * PX);
+      for (let k = 0; k < 2.8 * PX; k += 6) { ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(x(0.4), y(2.8) + k, w - x(0.8), 2); }
+    }
+  });
+  const emitMap = canvasTex(w, h, (ctx) => {
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
+    if (!opt.geoWindows) opt.windows.forEach(([wx, wy, ww, wh, lit]) => {
+      if (!lit) return;
+      const warm = R() < 0.75;
+      const k = 0.12 + R() * 0.3;
+      const g = ctx.createLinearGradient(0, y(wy + wh), 0, y(wy));
+      const c1 = warm ? [255, 196, 130] : [190, 215, 255];
+      g.addColorStop(0, `rgba(${c1.map(v => Math.round(v * k * 0.7)).join(',')},1)`);
+      g.addColorStop(1, `rgba(${c1.map(v => Math.round(v * k)).join(',')},1)`);
+      ctx.fillStyle = g; ctx.fillRect(x(wx), y(wy + wh), x(ww), x(wh));
+      if (R() < 0.6) { ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(x(wx + ww * R() * 0.6), y(wy + wh), x(ww * 0.4), x(wh)); } // 窗帘
+      ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fillRect(x(wx + ww / 2) - 2, y(wy + wh), 4, x(wh));           // 窗棂
+    });
+    if (opt.shop) {
+      const s = opt.shop;
+      // 橱窗：货架剪影
+      s.windows.forEach(([wx, ww]) => {
+        ctx.fillStyle = 'rgb(255,232,196)'; ctx.fillRect(x(wx), y(2.5), x(ww), 2.4 * PX);
+        for (let r = 0; r < 4; r++) {
+          ctx.fillStyle = 'rgba(70,50,30,0.6)'; ctx.fillRect(x(wx), y(0.5 + r * 0.5), x(ww), 0.06 * PX);
+          for (let k = 0; k < ww * 8; k++) { ctx.fillStyle = `hsla(${R() * 360},45%,${45 + R() * 20}%,0.55)`; ctx.fillRect(x(wx + k / 8), y(0.5 + r * 0.5 + 0.32), x(0.1), 0.3 * PX); }
+        }
+        for (let k = 0; k <= ww; k += 1.1) { ctx.fillStyle = '#000'; ctx.fillRect(x(wx + k) - 3, y(2.5), 6, 2.4 * PX); }
+      });
+      // 玻璃门
+      ctx.fillStyle = 'rgb(240,214,170)'; ctx.fillRect(x(s.door[0]), y(2.3), x(s.door[1]), 2.3 * PX - x(0.45));
+      ctx.fillStyle = '#000'; ctx.fillRect(x(s.door[0] + s.door[1] / 2) - 3, y(2.3), 6, 2.3 * PX);
+      // 招牌
+      ctx.fillStyle = 'rgb(150,18,30)'; ctx.fillRect(x(0.3), y(3.35), w - x(0.6), 0.75 * PX);
+      ctx.font = `700 ${Math.round(0.5 * PX)}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgb(255,236,226)'; ctx.fillText(s.sign, w / 2, y(2.98));
+    }
+  });
+  return { map, emitMap };
+}
+
+// 住户窗户的灯光：每扇窗对应贴图里的一个像素（暖光 / 冷光 / 不亮）
+const WIN_TEX_N = 64;
+const winTexData = new Uint8Array(WIN_TEX_N * WIN_TEX_N * 4);
+const winTex = new THREE.DataTexture(winTexData, WIN_TEX_N, WIN_TEX_N, THREE.RGBAFormat);
+winTex.magFilter = winTex.minFilter = THREE.NearestFilter;
+winTex.generateMipmaps = false;
+let winCount = 0;
+function nextWindowTexel(R, pLit) {
+  const i = winCount++ % (WIN_TEX_N * WIN_TEX_N);
+  const lit = R() < pLit, warm = R() < 0.75, k = lit ? 0.18 + R() * 0.4 : 0;
+  const c = warm ? [255, 186, 115] : [175, 205, 255];
+  winTexData.set([...c.map(v => Math.round(v * k)), 255], i * 4);
+  winTex.needsUpdate = true;
+  return [((i % WIN_TEX_N) + 0.5) / WIN_TEX_N, (Math.floor(i / WIN_TEX_N) + 0.5) / WIN_TEX_N];
+}
+
+// 立体窗户：窗框、中梃、窗台突出墙面；部分窗户带阳台、空调外机或防盗网
+function buildWindows(x0, z, windows, wall, R, pLit) {
+  const glass = [], frame = [], balcony = [], ac = [], fan = [], bars = [];
+  const box = (list, w, h, d, x, y, zz) => list.push([new THREE.BoxGeometry(w, h, d), at(x, y, zz)]);
+  windows.forEach(([wx, wy, ww, wh]) => {
+    const cx = x0 + wx + ww / 2, cy = wy + wh / 2;
+    // 玻璃：整块映射到同一个像素
+    const gp = new THREE.PlaneGeometry(ww, wh);
+    const [u, v] = nextWindowTexel(R, pLit);
+    const uva = gp.attributes.uv;
+    for (let i = 0; i < uva.count; i++) uva.setXY(i, u, v);
+    glass.push([gp, at(cx, cy, z + 0.012)]);
+    // 窗框 + 中梃 + 窗台
+    const t = 0.07, d = 0.1;
+    box(frame, ww + t * 2, t, d, cx, wy + wh + t / 2, z + d / 2);
+    box(frame, ww + t * 2, t, d, cx, wy - t / 2, z + d / 2);
+    box(frame, t, wh, d, cx - ww / 2 - t / 2, cy, z + d / 2);
+    box(frame, t, wh, d, cx + ww / 2 + t / 2, cy, z + d / 2);
+    box(frame, 0.045, wh, 0.06, cx, cy, z + 0.03);
+    box(frame, ww + 0.3, 0.06, 0.2, cx, wy - t - 0.03, z + 0.1);
+    const r = R();
+    if (wy > 3 && r < 0.3) {
+      // 阳台：楼板 + 实心栏板 + 两侧挡板
+      const bw = ww + 0.9, bd = 1.0, by = wy - 0.25;
+      box(balcony, bw, 0.12, bd, cx, by, z + bd / 2);
+      box(balcony, bw, 0.95, 0.06, cx, by + 0.53, z + bd - 0.03);
+      box(balcony, 0.06, 0.95, bd, cx - bw / 2 + 0.03, by + 0.53, z + bd / 2);
+      box(balcony, 0.06, 0.95, bd, cx + bw / 2 - 0.03, by + 0.53, z + bd / 2);
+      box(balcony, bw + 0.04, 0.05, 0.1, cx, by + 1.02, z + bd - 0.03);   // 扶手压顶
+    } else if (r < 0.62) {
+      // 空调外机：机壳 + 风扇 + 支架
+      const side = R() < 0.5 ? -1 : 1;
+      const ax = cx + side * (ww / 2 + 0.55), ay = wy + 0.15;
+      box(ac, 0.8, 0.56, 0.3, ax, ay + 0.28, z + 0.17);
+      const fg = new THREE.CircleGeometry(0.2, 18);
+      fan.push([fg, at(ax - 0.1, ay + 0.28, z + 0.322)]);
+      box(bars, 0.9, 0.04, 0.36, ax, ay - 0.02, z + 0.18);
+    } else if (wy < 7 && r < 0.85) {
+      // 防盗网：竖杆 + 上下横杆，略凸出窗外
+      const n = Math.round(ww / 0.12);
+      for (let k = 0; k <= n; k++) box(bars, 0.02, wh + 0.1, 0.02, cx - ww / 2 + k * ww / n, cy, z + 0.16);
+      box(bars, ww + 0.06, 0.03, 0.18, cx, wy + wh + 0.05, z + 0.09);
+      box(bars, ww + 0.06, 0.03, 0.18, cx, wy - 0.05, z + 0.09);
+    }
+  });
+  const wc = new THREE.Color(wall);
+  const g = new THREE.Group();
+  const add = (list, mat) => { if (list.length) g.add(new THREE.Mesh(mergeGeos(list), mat)); };
+  add(glass, solidMat(0x0b0d10, { emitMap: winTex, emit: 0xffffff, spec: 0.9, shine: 120 }));
+  add(frame, solidMat(wc.clone().lerp(new THREE.Color(0xb8b2a8), 0.55), { spec: 0.2 }));
+  add(balcony, solidMat(wc.clone().multiplyScalar(1.15), { spec: 0.15 }));
+  add(ac, solidMat(0xcfccc4, { spec: 0.35 }));
+  add(fan, solidMat(0x2a2a2a, { spec: 0.1 }));
+  add(bars, solidMat(0x3a3c3f, { spec: 0.5 }));
+  return g;
+}
+
+function buildingBlock(x0, x1, z, H, depth, opt) {
+  const g = new THREE.Group();
+  const W = x1 - x0;
+  const { map, emitMap } = facadeTextures(W, H, opt);
+  const front = new THREE.Mesh(new THREE.PlaneGeometry(W, H), solidMat(0xffffff, { map, emitMap, emit: opt.glow || 0xffffff, spec: 0.1 }));
+  front.position.set((x0 + x1) / 2, H / 2, z);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(W, H, depth), solidMat(new THREE.Color(opt.wall).multiplyScalar(0.6), { spec: 0.05 }));
+  body.position.set((x0 + x1) / 2, H / 2, z - depth / 2 - 0.2);   // 与立面拉开距离，远处不会深度冲突
+  g.add(front, body);
+  if (opt.geoWindows) g.add(buildWindows(x0, z, opt.windows, opt.wall, rng(opt.seed + 1), opt.pLit));
+  return g;
+}
+// 窗户网格：[x, y, 宽, 高, 是否亮灯]（米，相对楼的左下角）
+function windowGrid(W, H, from, R, pLit, size = [1.3, 1.5]) {
+  const out = [];
+  const [ww, wh] = size;
+  for (let f = from; f * 3 + 2.2 < H; f++) {
+    for (let k = 0; k * 2.2 + 1.6 < W; k++) {
+      out.push([0.6 + k * 2.2 + (1.3 - ww) / 2, f * 3 + 0.95, ww, wh, R() < pLit]);
+    }
+  }
+  return out;
+}
+
+/* ---------- 街景 ---------- */
+function buildStreet() {
+  const g = new THREE.Group();
+  const R = rng(7);
+  const walkMat = solidMat(0x46423d, { spec: 0.2 });
+  const curbMat = solidMat(0x6b6862, { spec: 0.2 });
+  // 两侧人行道和路沿石
+  const far = new THREE.Mesh(new THREE.BoxGeometry(90, CURB_H, -CURB_FAR + 30), walkMat);
+  far.position.set(0, CURB_H / 2, CURB_FAR - (-CURB_FAR + 30) / 2);
+  const near = new THREE.Mesh(new THREE.BoxGeometry(90, CURB_H, 12), walkMat);
+  near.position.set(0, CURB_H / 2, CURB_NEAR + 6);
+  const c1 = new THREE.Mesh(new THREE.BoxGeometry(90, CURB_H + 0.004, 0.2), curbMat);
+  c1.position.set(0, (CURB_H + 0.004) / 2, CURB_FAR - 0.1);
+  const c2 = c1.clone(); c2.position.z = CURB_NEAR + 0.1;
+  g.add(far, near, c1, c2);
+
+  // 便利店所在的楼（中间），左右各一栋：窗户用几何体搭建
+  const SMALL = [1.0, 1.3];
+  g.add(buildingBlock(-6.2, 3.2, FACADE_Z, 15, 8, {
+    seed: 11, wall: '#6d6257', geoWindows: true, pLit: 0.5,
+    shop: { windows: [[0.4, 3.2], [5.4, 3.6]], door: [3.95, 1.1], sign: '24 小时便利店' },
+    windows: windowGrid(9.4, 15, 1, R, 0.5, SMALL),
+  }));
+  g.add(buildingBlock(-20, -6.2, FACADE_Z + 0.4, 21, 10, {
+    seed: 23, wall: '#55585c', shutter: true, glow: 0xdddddd, geoWindows: true, pLit: 0.4,
+    windows: windowGrid(13.8, 21, 1, R, 0.4, SMALL),
+  }));
+  g.add(buildingBlock(3.2, 20, FACADE_Z - 0.6, 18, 10, {
+    seed: 37, wall: '#7a7065', glow: 0xdddddd, geoWindows: true, pLit: 0.35,
+    windows: windowGrid(16.8, 18, 1, R, 0.35, SMALL),
+  }));
+  // 远处的高楼（窗户画在贴图上即可）
+  for (let i = 0; i < 9; i++) {
+    const w = 8 + R() * 10, h = 24 + R() * 40, x = -48 + i * 12 + R() * 4, z = -28 - R() * 22;
+    g.add(buildingBlock(x - w / 2, x + w / 2, z, h, 10, { seed: 100 + i, wall: '#3c3f44', glow: 0xbbbbbb, windows: windowGrid(w, h, 0, R, 0.3) }));
+  }
+
+  // 店门口的两级台阶（每级 15 cm）
+  const stepMat = solidMat(0x8a8780, { spec: 0.25 });
+  [[0.30, 0.7], [0.45, 0.35]].forEach(([top, d]) => {
+    const s = new THREE.Mesh(new THREE.BoxGeometry(2.2, top - CURB_H, d), stepMat);
+    s.position.set(-6.2 + 3.95 + 0.55, CURB_H + (top - CURB_H) / 2, FACADE_Z + d / 2);   // 正对便利店的门
+    g.add(s);
+  });
+  return g;
+}
+
+// 路灯：灯杆立在对面人行道上，灯头伸向路面
+function buildLamp(i) {
+  const g = new THREE.Group();
+  const metal = solidMat(0x2f3135, { spec: 0.5 });
+  const L = uLP[i];
+  const px = L.x + (i === 0 ? -0.9 : 0.9), pz = CURB_FAR - 0.6;
+  const top = L.y + 0.25;
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, top - CURB_H, 14), metal);
+  pole.position.set(px, CURB_H + (top - CURB_H) / 2, pz);
+  const armLen = Math.hypot(L.x - px, L.z - pz);
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(armLen, 0.06, 0.06), metal);
+  arm.position.set((px + L.x) / 2, top, (pz + L.z) / 2);
+  arm.rotation.y = -Math.atan2(L.z - pz, L.x - px);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.12, 0.3), metal);
+  head.position.set(L.x, L.y + 0.14, L.z);
+  head.rotation.y = arm.rotation.y;
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.22), solidMat(0x000000, { emit: 0xffb070, spec: 0 }));
+  glow.material.uniforms.uEmit.value.multiplyScalar(9);
+  glow.rotation.x = Math.PI / 2; glow.rotation.z = -arm.rotation.y;
+  glow.position.set(L.x, L.y + 0.075, L.z);
+  g.add(pole, arm, head, glow);
+  return g;
+}
+
+// 公交站：顶棚、立柱、座椅（座面离路面 57 cm）、广告灯箱、站牌
+function buildBusStop() {
+  const g = new THREE.Group();
+  const metal = solidMat(0x8d939a, { spec: 0.6, shine: 60 });
+  const x0 = 4.2, x1 = 7.7, zb = -6.5, zf = -5.0, base = CURB_H;
+  [x0, x1].forEach(x => [zb].forEach(z => {
+    const p = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.5, 0.08), metal); p.position.set(x, base + 1.25, z); g.add(p);
+  }));
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0 + 0.4, 0.08, zf - zb + 0.5), solidMat(0x2a2d31, { spec: 0.4 }));
+  roof.position.set((x0 + x1) / 2, base + 2.54, (zb + zf) / 2 - 0.1);
+  g.add(roof);
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 1.8), solidMat(0x101418, { spec: 0.9, shine: 120 }));
+  glass.position.set(x0 + 1.05, base + 1.2, zb + 0.02);
+  g.add(glass);
+  // 座椅
+  const seatTop = 0.57;
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.05, 0.42), metal);
+  seat.position.set(x0 + 1.05, seatTop - 0.025, zb + 0.32);
+  g.add(seat);
+  [x0 + 0.35, x0 + 1.75].forEach(x => { const l = new THREE.Mesh(new THREE.BoxGeometry(0.05, seatTop - base, 0.05), metal); l.position.set(x, base + (seatTop - base) / 2, zb + 0.32); g.add(l); });
+  // 广告灯箱：防汛提示
+  const ad = canvasTex(256, 384, (ctx, w, h) => {
+    const gr = ctx.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, '#d8ecff'); gr.addColorStop(1, '#7fb0e6');
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#123a6b'; ctx.textAlign = 'center';
+    ctx.font = `700 46px ${FONT}`; ctx.fillText('暴雨天气', w / 2, 120);
+    ctx.font = `700 34px ${FONT}`; ctx.fillText('远离积水路段', w / 2, 200); ctx.fillText('注意出行安全', w / 2, 250);
+    ctx.fillStyle = 'rgba(18,58,107,0.5)'; ctx.fillRect(40, 300, w - 80, 4);
+  });
+  const box = new THREE.Mesh(new THREE.BoxGeometry(1.15, 1.75, 0.12), solidMat(0x1d1f22, { spec: 0.4 }));
+  box.position.set(x1 - 0.65, base + 1.2, zb + 0.06);
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 1.55), solidMat(0x000000, { emitMap: ad, emit: 0xffffff }));
+  face.material.uniforms.uEmit.value.multiplyScalar(2.2);
+  face.position.set(x1 - 0.65, base + 1.2, zb + 0.125);
+  g.add(box, face);
+  // 站牌
+  const sign = canvasTex(128, 192, (ctx, w, h) => {
+    ctx.fillStyle = '#e9edf2'; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#1d5fb5'; ctx.fillRect(0, 0, w, 54);
+    ctx.fillStyle = '#fff'; ctx.font = `700 30px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText('公交站', w / 2, 38);
+    ctx.fillStyle = '#334'; ctx.font = `600 18px ${MONO_FONT}`;
+    ['B12', '36', 'Y8'].forEach((t, i) => ctx.fillText(t, w / 2, 90 + i * 34));
+  });
+  const sp = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.6, 10), metal);
+  sp.position.set(x1 + 0.9, base + 1.3, zf + 0.4);
+  const sb = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.75), solidMat(0xffffff, { map: sign, emitMap: sign, emit: 0x202020 }));
+  sb.position.set(x1 + 0.9, base + 2.2, zf + 0.45);
+  g.add(sp, sb);
+  return g;
+}
+
+// 小轿车：曲线侧轮廓挤出 + 大倒角做出圆润车身；车门下沿约 30 cm，轮胎顶约 65 cm，引擎盖约 90 cm
+function buildCar() {
+  const g = new THREE.Group();
+  const paint = solidMat(0x7a1018, { spec: 0.9, shine: 90 });
+  const glassMat = solidMat(0x06080a, { spec: 1.2, shine: 160 });
+  const dark = solidMat(0x0c0c0d, { spec: 0.3 });
+  const chrome = solidMat(0xa8adb3, { spec: 1.0, shine: 120 });
+  const extrude = (shape, depth, bevel, mat) => {
+    const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelSize: bevel, bevelThickness: bevel * 1.2, bevelSegments: 4, curveSegments: 12 });
+    geo.translate(0, 0, -depth / 2);
+    const m = new THREE.Mesh(geo, mat);
+    g.add(m);
+    return m;
+  };
+  // 车身下半部：轮拱用圆弧挖出
+  const s = new THREE.Shape();
+  s.moveTo(-2.15, 0.24);
+  s.lineTo(-1.80, 0.24); s.lineTo(-1.80, 0.30); s.absarc(-1.38, 0.30, 0.42, Math.PI, 0, true); s.lineTo(-0.96, 0.24);
+  s.lineTo(0.96, 0.24); s.lineTo(0.96, 0.30); s.absarc(1.38, 0.30, 0.42, Math.PI, 0, true); s.lineTo(1.80, 0.24);
+  s.lineTo(2.15, 0.24);
+  s.quadraticCurveTo(2.36, 0.28, 2.34, 0.52);     // 前保险杠
+  s.quadraticCurveTo(2.32, 0.76, 2.05, 0.80);     // 车头
+  s.quadraticCurveTo(1.4, 0.88, 0.85, 0.93);      // 引擎盖
+  s.lineTo(-1.75, 0.97);                          // 腰线
+  s.quadraticCurveTo(-2.25, 0.97, -2.30, 0.85);   // 后备箱
+  s.quadraticCurveTo(-2.38, 0.60, -2.28, 0.40);
+  s.quadraticCurveTo(-2.25, 0.26, -2.15, 0.24);
+  const W = 1.62;
+  extrude(s, W, 0.09, paint);
+  // 车舱：整体为玻璃，车顶和立柱另外加上
+  const c = new THREE.Shape();
+  c.moveTo(0.92, 0.93);
+  c.quadraticCurveTo(0.45, 1.2, 0.0, 1.38);
+  c.quadraticCurveTo(-0.5, 1.45, -1.05, 1.40);
+  c.quadraticCurveTo(-1.5, 1.2, -1.82, 0.97);
+  c.lineTo(0.92, 0.93);
+  extrude(c, 1.36, 0.08, glassMat);
+  const roof = new THREE.Shape();
+  roof.moveTo(0.1, 1.36);
+  roof.quadraticCurveTo(-0.5, 1.43, -1.06, 1.38);
+  roof.lineTo(-1.08, 1.43);
+  roof.quadraticCurveTo(-0.5, 1.49, 0.07, 1.41);
+  roof.lineTo(0.1, 1.36);
+  extrude(roof, 1.40, 0.06, paint);
+  const beam = (a, b, z, t, mat) => {
+    const A = new THREE.Vector3(a[0], a[1], z), B = new THREE.Vector3(b[0], b[1], z);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(t, A.distanceTo(B), t), mat);
+    m.position.copy(A).add(B).multiplyScalar(0.5);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), B.clone().sub(A).normalize());
+    g.add(m);
+    return m;
+  };
+  [-1, 1].forEach(sd => {
+    const zs = sd * 0.72, zb = sd * (W / 2 + 0.105);
+    beam([0.9, 0.95], [0.05, 1.38], zs, 0.07, paint);     // A 柱
+    beam([-0.45, 0.97], [-0.45, 1.43], zs, 0.08, paint);  // B 柱
+    beam([-1.80, 0.98], [-1.05, 1.40], zs, 0.09, paint);  // C 柱
+    // 门缝、门把手
+    [[0.88, 0.30, 0.92], [-0.45, 0.30, 0.96], [-1.62, 0.34, 0.97]].forEach(([x, y0, y1]) => beam([x, y0], [x, y1], zb, 0.012, dark));
+    [0.25, -0.95].forEach(x => { const h = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.03, 0.03), chrome); h.position.set(x, 0.80, zb + sd * 0.01); g.add(h); });
+    // 后视镜
+    const mir = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, 0.12), paint); mir.position.set(0.72, 1.0, sd * 0.98); g.add(mir);
+    const mg = new THREE.Mesh(new THREE.PlaneGeometry(0.13, 0.08), glassMat); mg.position.set(0.64, 1.0, sd * 0.98); mg.rotation.y = -Math.PI / 2; g.add(mg);
+    // 车轮：轮胎 + 轮毂 + 5 根辐条
+    [1.38, -1.38].forEach(x => {
+      const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.22, 28).rotateX(Math.PI / 2), solidMat(0x111111, { spec: 0.1 }));
+      tire.position.set(x, 0.32, sd * 0.79); g.add(tire);
+      const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.02, 24).rotateX(Math.PI / 2), solidMat(0x2a2c2f, { spec: 0.6 }));
+      hub.position.set(x, 0.32, sd * 0.905); g.add(hub);
+      for (let k = 0; k < 5; k++) {
+        const sp = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.19, 0.02), chrome);
+        const a = k / 5 * Math.PI * 2;
+        sp.position.set(x + Math.sin(a) * 0.1, 0.32 + Math.cos(a) * 0.1, sd * 0.918); sp.rotation.z = -a; g.add(sp);
+      }
+    });
+  });
+  // 车头格栅、车牌
+  const face = (w, h, x, y, mat, back) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+    m.position.set(x, y, 0); m.rotation.y = back ? -Math.PI / 2 : Math.PI / 2;
+    g.add(m); return m;
+  };
+  face(0.9, 0.12, 2.375, 0.62, dark);
+  face(1.1, 0.1, 2.395, 0.36, dark);
+  const plate = canvasTex(256, 80, (ctx, w, h) => {
+    ctx.fillStyle = '#1d4fb5'; ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.strokeRect(6, 6, w - 12, h - 12);
+    ctx.fillStyle = '#fff'; ctx.font = `700 46px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('豫A·5Q207', w / 2, h / 2 + 2);
+  });
+  const plateMat = solidMat(0xffffff, { map: plate, emitMap: plate, emit: 0x101010, spec: 0.3 });
+  face(0.44, 0.14, 2.40, 0.47, plateMat);
+  face(0.44, 0.14, -2.385, 0.55, plateMat, true);
+  // 车灯：前灯、尾灯、双闪
+  const lamp = (x, y, z, w, h, col, k, hazard) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), solidMat(0x000000, { emit: col, spec: 0, hazard }));
+    m.material.uniforms.uEmit.value.multiplyScalar(k);
+    m.position.set(x, y, z); m.rotation.y = x > 0 ? Math.PI / 2 : -Math.PI / 2;
+    g.add(m);
+  };
+  [-0.58, 0.58].forEach(z => {
+    lamp(2.30, 0.70, z, 0.34, 0.09, 0xffffff, 0.8);
+    lamp(-2.33, 0.78, z, 0.34, 0.1, 0xff2010, 1.5);
+    lamp(2.31, 0.62, z * 1.18, 0.1, 0.05, 0xffa020, 6, true);
+    lamp(-2.35, 0.68, z * 1.18, 0.1, 0.05, 0xffa020, 6, true);
+  });
+  // 侧面转向灯（面向镜头）
+  [1.75, -1.95].forEach(x => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 0.05), solidMat(0x000000, { emit: 0xffa020, hazard: true }));
+    m.material.uniforms.uEmit.value.multiplyScalar(6);
+    m.position.set(x, 0.66, W / 2 + 0.1);
+    g.add(m);
+  });
+  g.position.set(-4.6, 0, -1.95);
+  return g;
+}
+
+/* ---------- 人：带关节的简化人体，姿态随水位变化 ---------- */
+// 返回 { root, body, head, legs:[L,R], arms:[L,R] }，每条手臂为 { sh, el, hand }
+function buildPerson(H, coat, opt = {}) {
+  const k = H / 1.7;
+  const root = new THREE.Group();
+  const skin = solidMat(0x8a6a58, { spec: 0.15 });
+  const pants = solidMat(opt.pants || 0x24262b, { spec: 0.15 });
+  const shoe = solidMat(0x151515, { spec: 0.3 });
+  const coatM = solidMat(coat, { spec: opt.coatSpec || 0.3, shine: 30 });
+  const cap = (r, len, mat) => {   // 顶端在原点、向 -y 延伸的胶囊
+    const m = new THREE.Mesh(new THREE.CapsuleGeometry(r * k, Math.max(0.001, len * k - 2 * r * k), 6, 12), mat);
+    m.position.y = -len * k / 2;
+    return m;
+  };
+  const HIP = 0.92;
+  // 腿：挂在根节点上，躬身时不动
+  const legs = [-1, 1].map(sd => {
+    const leg = new THREE.Group();
+    leg.position.set(sd * 0.1 * k, HIP * k, 0);
+    leg.add(cap(0.068, 0.84, pants));
+    const sh = new THREE.Mesh(new THREE.BoxGeometry(0.1 * k, 0.07 * k, 0.26 * k), shoe);
+    sh.position.set(0, -0.885 * k, 0.05 * k);
+    leg.add(sh);
+    root.add(leg);
+    return leg;
+  });
+  // 上身：以髋部为支点
+  const body = new THREE.Group();
+  body.position.y = HIP * k;
+  root.add(body);
+  const hem = opt.hem || 0.72;
+  const prof = [[0.001, hem], [0.205, hem], [0.215, 0.92], [0.2, 1.12], [0.215, 1.32], [0.225, 1.43], [0.17, 1.5], [0.065, 1.55], [0.001, 1.555]]
+    .map(([r, y]) => new THREE.Vector2(r * k, (y - HIP) * k));
+  const torso = new THREE.Mesh(new THREE.LatheGeometry(prof, 20), coatM);
+  torso.scale.z = 0.62;
+  body.add(torso);
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.05 * k, 0.055 * k, 0.1 * k, 12), skin);
+  neck.position.y = (1.58 - HIP) * k;
+  body.add(neck);
+  const hr = opt.headScale || 1;
+  const head = new THREE.Group();
+  head.position.y = (1.585 - HIP) * k;
+  body.add(head);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.1 * k * hr, 20, 14), skin);
+  skull.position.set(0, 0.105 * hr * k, 0.005 * k); skull.scale.set(0.94, 1.12, 1.0);
+  head.add(skull);
+  const top = opt.hood
+    ? new THREE.Mesh(new THREE.SphereGeometry(0.125 * k * hr, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.62), coatM)
+    : new THREE.Mesh(new THREE.SphereGeometry(0.106 * k * hr, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.55), solidMat(0x16120f, { spec: 0.3 }));
+  top.position.set(0, (opt.hood ? 0.12 : 0.115) * hr * k, -0.015 * k); top.scale.set(1.0, 1.1, 1.05);
+  head.add(top);
+  // 手臂：肩、肘两个关节
+  const arms = [-1, 1].map(sd => {
+    const sh = new THREE.Group();
+    sh.position.set(sd * 0.225 * k, (1.44 - HIP) * k, 0);
+    sh.add(cap(0.05, 0.29, coatM));
+    const el = new THREE.Group();
+    el.position.y = -0.29 * k;
+    sh.add(el);
+    el.add(cap(0.045, 0.26, coatM));
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.045 * k, 10, 8), skin);
+    hand.position.y = -0.29 * k;
+    el.add(hand);
+    body.add(sh);
+    return { sh, el, hand };
+  });
+  return { root, body, head, legs, arms, k };
+}
+// 姿态：lean 上身前倾；arms[i] = [肩前后, 肩内外, 肘]；legs 抬腿角
+function applyPose(p, q) {
+  p.body.rotation.x = q.lean;
+  p.arms.forEach((a, i) => { a.sh.rotation.set(q.arms[i][0], 0, q.arms[i][1]); a.el.rotation.x = q.arms[i][2]; });
+  p.legs.forEach(l => (l.rotation.x = q.legs));
+}
+function lerpPose(a, b, t) {
+  const L = (x, y) => x + (y - x) * t;
+  return { lean: L(a.lean, b.lean), legs: L(a.legs, b.legs), arms: a.arms.map((v, i) => v.map((x, j) => L(x, b.arms[i][j]))) };
+}
+// 左臂下标 0、右臂下标 1。左臂内收为正，右臂内收为负
+const POSE = {
+  adultStand: { lean: 0, legs: 0, arms: [[-0.12, -0.14, -0.2], [-0.5, -0.3, -1.55]] },
+  adultCarry: { lean: 0.05, legs: 0, arms: [[-0.7, 0.45, -1.7], [-0.5, -0.3, -1.55]] },
+  childStand: { lean: 0, legs: 0, arms: [[0.05, -0.1, -0.2], [-0.15, 0.42, -0.15]] },
+  childCarry: { lean: -0.1, legs: -1.25, arms: [[-2.3, 0.35, -0.9], [-2.3, -0.35, -0.9]] },
+};
+const CHILD_AT = {   // 孩子相对大人的位置和朝向
+  stand: [new THREE.Vector3(-0.62, 0, 0.12), 0.25],
+  close: [new THREE.Vector3(-0.44, 0, 0.1), 0.25],
+  carry: [new THREE.Vector3(-0.17, 0.36, 0.2), Math.PI - 0.55],
+};
+
+// 伞：伞面为一圈弧形，暴雨时被压扁、压斜
+function buildUmbrella() {
+  const g = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.9, 8), solidMat(0x222222, { spec: 0.4 }));
+  shaft.position.y = 0.45;
+  const prof = [];
+  for (let i = 0; i <= 10; i++) { const r = i / 10 * 0.6; prof.push(new THREE.Vector2(r, -0.32 * Math.pow(r / 0.6, 1.6))); }
+  const canopy = new THREE.Mesh(new THREE.LatheGeometry(prof, 8), solidMat(0x1b2a3d, { spec: 0.7, shine: 30, side: THREE.DoubleSide }));
+  canopy.position.y = 0.9;
+  g.add(shaft, canopy);
+  return { root: g, canopy };
+}
+
+function buildPeople() {
+  const g = new THREE.Group();
+  const adult = buildPerson(1.7, 0x2c3440);
+  adult.root.position.set(0.3, 0, -1.4);
+  adult.root.rotation.y = -0.15;
+  const child = buildPerson(1.2, 0xe0b020, { hood: true, headScale: 1.25, hem: 0.62, pants: 0x2b3a55, coatSpec: 0.6 });
+  adult.root.add(child.root);   // 孩子挂在大人下面，抱起来时跟着大人
+  const umb = buildUmbrella();
+  g.add(adult.root, umb.root);
+  return { group: g, adult, child, umb, carry: 0, close: 0 };
+}
+const people = buildPeople();
+const _hand = new THREE.Vector3();
+// 每帧更新：水漫过脚背时把孩子拉近，水到孩子膝盖附近（25 cm）时抱起；暴雨时伞被压弯、大人弓身护住孩子
+function updatePeople(dt, T, level, rain) {
+  const P = people;
+  const ease = x => x * x * (3 - 2 * x);
+  P.close += ((level > 0.04 ? 1 : 0) - P.close) * Math.min(1, dt * 1.5);
+  P.carry += ((level > 0.25 ? 1 : 0) - P.carry) * Math.min(1, dt * 1.1);
+  const c = ease(Math.min(1, Math.max(0, P.carry)));
+  const peak = Math.min(1, Math.max(0, (rain - 0.6) / 0.3));
+  // 孩子的位置：站 → 靠近 → 抱起（抬起时走一段弧线）
+  const [p0, r0] = CHILD_AT.stand, [p1, r1] = CHILD_AT.close, [p2, r2] = CHILD_AT.carry;
+  const pos = p0.clone().lerp(p1, ease(P.close)).lerp(p2, c);
+  pos.y += Math.sin(Math.PI * c) * 0.18;
+  P.child.root.position.copy(pos);
+  P.child.root.rotation.y = r0 + (r1 - r0) * P.close + (r2 - r1) * c;
+  // 姿态
+  const qa = lerpPose(POSE.adultStand, POSE.adultCarry, c);
+  qa.lean += 0.3 * peak;
+  qa.arms[1][0] -= 0.25 * peak;   // 伞压低
+  applyPose(P.adult, qa);
+  applyPose(P.child, lerpPose(POSE.childStand, POSE.childCarry, c));
+  // 待机小动作：呼吸、孩子张望
+  P.adult.body.scale.y = 1 + 0.008 * Math.sin(T * 1.6);
+  P.child.body.scale.y = 1 + 0.01 * Math.sin(T * 2.1 + 1.0);
+  P.child.head.rotation.y = (0.5 * Math.sin(T * 0.37) + 0.15 * Math.sin(T * 1.13)) * (1 - c) + 0.3 * c;
+  P.adult.head.rotation.y = -0.35 * P.close + 0.1 * Math.sin(T * 0.23);
+  P.adult.head.rotation.x = 0.25 * c;
+  // 伞跟着右手；雨越大晃得越厉害，暴雨时被压扁、压斜
+  P.group.updateMatrixWorld(true);
+  P.adult.arms[1].hand.getWorldPosition(_hand);
+  P.umb.root.position.copy(_hand);
+  P.umb.root.rotation.set(0.35 * qa.lean + 0.03 * Math.sin(T * 1.1), 0, 0.05 * Math.sin(T * 1.3) + rain * 0.04 * Math.sin(T * 7.3) - 0.1 * peak);
+  P.umb.canopy.scale.set(1 + 0.1 * peak, 1 - 0.5 * peak, 1 + 0.1 * peak);
+  P.umb.canopy.position.y = 0.9 - 0.08 * peak;
+}
+
+// 水尺：每 10 cm 一个“E”字刻度，红蓝交替，标注分米数
+function gaugeTexture() {
+  const PX = 8, W = 96, Hcm = 200;
+  return canvasTex(W, Hcm * PX, (ctx, w, h) => {
+    ctx.fillStyle = '#ecebe4'; ctx.fillRect(0, 0, w, h);
+    const yOf = cm => h - cm * PX;
+    for (let dm = 0; dm < Hcm / 10; dm++) {
+      ctx.fillStyle = dm % 2 ? '#2b55a3' : '#c4362c';
+      const left = dm % 2 === 0;
+      const x0 = left ? 8 : w - 8 - 44;
+      for (let k = 0; k < 3; k++) ctx.fillRect(x0, yOf(dm * 10 + k * 2 + 1), 44, PX);
+      ctx.fillRect(left ? x0 : x0 + 44 - PX, yOf(dm * 10 + 5), PX, 5 * PX);
+      ctx.font = `700 ${7 * PX}px ${MONO_FONT}`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String((dm + 1) % 10), w / 2, yOf(dm * 10 + 7.6));
+    }
+  });
+}
+function buildGauge() {
+  const geo = new THREE.BoxGeometry(0.12, 2.0, 0.025);
+  geo.translate(0, 1.0, 0);
+  const tex = gaugeTexture();
+  const m = new THREE.Mesh(geo, solidMat(0xffffff, { map: tex, emitMap: tex, emit: 0x161616, spec: 0.15 }));
+  m.position.copy(GAUGE);
+  return m;
+}
+
+// 天空：城市灯光映在云底的暗橙色
+function buildSky() {
+  const m = new THREE.ShaderMaterial({
+    uniforms, side: THREE.BackSide, depthWrite: false,
+    vertexShader: `varying vec3 vD; void main() { vD = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `
+      uniform float uRain;
+      varying vec3 vD;
+      void main() {
+        vec3 d = normalize(vD);
+        float h = pow(1.0 - clamp(d.y, 0.0, 1.0), 4.0);
+        vec3 c = mix(vec3(0.03, 0.03, 0.04), vec3(0.16, 0.10, 0.07), h);
+        c = mix(c, vec3(0.08, 0.07, 0.075), uRain * 0.5);
+        gl_FragColor = vec4(c, 1.0);
+      }`,
+  });
+  const s = new THREE.Mesh(new THREE.SphereGeometry(200, 24, 12), m);
+  s.renderOrder = -20;
+  return s;
+}
+
+/* ---------- 积水：浑浊的黄褐色，顺着路面流动；水浅时是湿亮的沥青路面 ---------- */
+const reflCam = new THREE.PerspectiveCamera();
+const reflTexMat = new THREE.Matrix4();
+const rtRefl = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
+uniforms.uRefl = { value: rtRefl.texture };
+uniforms.uReflMat = { value: reflTexMat };
+uniforms.uReflTexel = { value: new THREE.Vector2(1, 1) };
+function updateReflCam() {
+  const lv = uniforms.uLevel.value, t = controls.target;
+  reflCam.position.set(camera.position.x, 2 * lv - camera.position.y, camera.position.z);
+  reflCam.up.set(0, -1, 0);
+  reflCam.lookAt(t.x, 2 * lv - t.y, t.z);
+  reflCam.projectionMatrix.copy(camera.projectionMatrix);
+  reflCam.projectionMatrixInverse.copy(camera.projectionMatrixInverse);
+  reflCam.updateMatrixWorld();
+  reflTexMat.set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
+  reflTexMat.multiply(reflCam.projectionMatrix).multiply(reflCam.matrixWorldInverse);
+}
+
+function buildWater() {
+  const g = new THREE.PlaneGeometry(200, 200, 1, 1);
+  g.rotateX(-Math.PI / 2);
+  const m = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: `
+      varying vec3 vW;
+      void main() {
+        vec4 w = modelMatrix * vec4(position, 1.0);
+        vW = w.xyz;
+        gl_Position = projectionMatrix * viewMatrix * w;
+      }`,
+    fragmentShader: GLSL_COMMON + `
+      uniform float uTime, uWet, uLevel;
+      uniform sampler2D uRefl;
+      uniform mat4 uReflMat;
+      uniform vec2 uReflTexel;
+      varying vec3 vW;
+
+      // 随机雨点涟漪：返回 (高度, d/dx, d/dz)
+      vec3 ripples(vec2 q, float sc, float rate, float prob) {
+        vec2 c = floor(q / sc);
+        vec3 acc = vec3(0.0);
+        for (int i = -1; i <= 1; i++) for (int j = -1; j <= 1; j++) {
+          vec2 cc = c + vec2(float(i), float(j));
+          float h0 = hash12(cc);
+          float tt = uTime * rate * (0.75 + 0.5 * h0) + h0 * 17.0;
+          float k = floor(tt), ph = fract(tt);
+          if (hash12(cc + k * 1.731) > prob) continue;
+          vec2 ctr = (cc + 0.15 + 0.7 * vec2(hash12(cc + k * 3.17), hash12(cc + k * 5.91))) * sc;
+          vec2 dv = q - ctr;
+          float r = length(dv) + 1e-4;
+          float R = ph * sc * 1.1;
+          float w = sc * (0.03 + 0.05 * ph);
+          float fade = (1.0 - ph) * (1.0 - ph);
+          float s = 0.0, ds = 0.0;
+          for (int m = 0; m < 3; m++) {
+            float Rm = R - float(m) * sc * 0.18;
+            if (Rm <= 0.0) break;
+            float e = (r - Rm) / w;
+            float a = exp(-e * e) * (1.0 - float(m) * 0.3);
+            float wave = sin(e * 2.2);
+            s += wave * a;
+            ds += (2.2 * cos(e * 2.2) - 2.0 * e * wave) / w * a;
+          }
+          acc += vec3(s, ds * dv / r) * fade;
+        }
+        return acc;
+      }
+      float fbm(vec3 p) { return 0.55 * vnoise(p) + 0.3 * vnoise(p * 2.1 + 7.0) + 0.15 * vnoise(p * 4.3 + 13.0); }
+
+      void main() {
+        vec2 q = vW.xz;
+        float n = uRain;
+        float deep = smoothstep(0.004, 0.06, uLevel);          // 0：湿路面，1：浑水
+        vec2 flow = vec2(0.55, 0.08) * (0.3 + 0.7 * n) * deep;  // 水流沿街道方向
+        vec2 qf = q - flow * uTime;
+
+        vec2 grad = vec2(0.0);
+        if (n > 0.001) {
+          vec3 r1 = ripples(q, 0.36, 1.6, 0.2 + 0.75 * n);
+          vec3 r2 = ripples(q + 11.7, 0.22, 2.1, 0.15 + 0.65 * n);
+          grad += (r1.yz + 0.7 * r2.yz) * 0.0022 * (0.5 + 0.5 * n);
+        }
+        float t = uTime;
+        float e0 = fbm(vec3(qf * 1.4, t * 0.4)), ex = fbm(vec3(qf * 1.4 + vec2(0.04, 0.0), t * 0.4)), ez = fbm(vec3(qf * 1.4 + vec2(0.0, 0.04), t * 0.4));
+        grad += vec2(ex - e0, ez - e0) / 0.04 * mix(0.02, 0.03 + 0.05 * n, deep);
+        vec3 N = normalize(vec3(-grad.x, 1.0, -grad.y));
+
+        vec3 V = normalize(cameraPosition - vW);
+        float cosT = clamp(dot(N, V), 0.0, 1.0);
+        float F = 0.02 + 0.98 * pow(1.0 - cosT, 5.0);
+
+        vec4 pc = uReflMat * vec4(vW, 1.0);
+        vec2 ruv = pc.xy / pc.w + N.xz * 0.05;
+        float blur = mix(5.0, 2.0, uWet);
+        vec3 refl = texture2D(uRefl, ruv).rgb * 0.4;
+        refl += texture2D(uRefl, ruv + uReflTexel * vec2( blur,  blur)).rgb * 0.15;
+        refl += texture2D(uRefl, ruv + uReflTexel * vec2(-blur,  blur)).rgb * 0.15;
+        refl += texture2D(uRefl, ruv + uReflTexel * vec2( blur, -blur)).rgb * 0.15;
+        refl += texture2D(uRefl, ruv + uReflTexel * vec2(-blur, -blur)).rgb * 0.15;
+
+        // 沥青（含车道线）
+        float lane = step(abs(vW.z - 1.0), 0.07) * step(0.5, fract(vW.x / 6.0));
+        vec3 asphalt = vec3(0.055, 0.055, 0.058) * (0.85 + 0.3 * vnoise(vec3(q * 3.0, 0.0))) + vec3(0.5) * lane * (1.0 - deep);
+        // 浑水：泥沙让水面本身被照亮成黄褐色
+        float silt = 0.8 + 0.4 * fbm(vec3(qf * 0.5, t * 0.15));
+        vec3 mud = vec3(0.30, 0.22, 0.12) * silt;
+        vec3 alb = mix(asphalt * (1.0 - 0.45 * uWet), mud, deep);
+
+        vec3 col = alb * AMB;
+        vec3 spec = vec3(0.0);
+        for (int i = 0; i < ${NL}; i++) {
+          vec3 L;
+          vec3 E = lightI(i, vW, L);
+          col += alb * E * max(dot(N, L), 0.0);
+          spec += E * pow(max(dot(N, normalize(L + V)), 0.0), mix(180.0, 90.0, deep)) * 2.5;
+        }
+        float reflAmt = mix(0.35 + 0.65 * uWet, 0.75, deep);
+        col = col * (1.0 - F * reflAmt) + refl * F * reflAmt * 1.4 + spec * mix(0.4 + 0.6 * uWet, 1.0, deep);
+
+        // 浪花和泡沫：雨越大、水越深越多
+        float foam = smoothstep(0.62, 0.86, fbm(vec3(qf * vec2(0.9, 2.2), t * 0.6))) * deep * (0.15 + 0.85 * n * n);
+        col += foam * (vec3(0.55, 0.48, 0.38) * (AMB * 2.0 + lightAt(vW) * 0.9));
+
+        gl_FragColor = vec4(rainFog(max(col, 0.0), vW), 1.0);
+      }`,
+  });
+  const mesh = new THREE.Mesh(g, m);
+  mesh.renderOrder = -10;
+  return mesh;
+}
+
+/* ---------- 雨雾：体积光线步进，灯下的光锥随雨势变浓 ---------- */
+const MIST_MIN = new THREE.Vector3(-18, 0, FACADE_Z + 0.1);
+const MIST_MAX = new THREE.Vector3(18, 9, 9);
+function buildMist() {
+  const size = MIST_MAX.clone().sub(MIST_MIN);
+  const g = new THREE.BoxGeometry(size.x, size.y, size.z);
+  g.translate((MIST_MIN.x + MIST_MAX.x) / 2, (MIST_MIN.y + MIST_MAX.y) / 2, (MIST_MIN.z + MIST_MAX.z) / 2);
+  const m = new THREE.ShaderMaterial({
+    uniforms: Object.assign({ uBoxMin: { value: MIST_MIN }, uBoxMax: { value: MIST_MAX } }, uniforms),
+    side: THREE.BackSide, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
+    vertexShader: `
+      varying vec3 vW;
+      void main() {
+        vec4 w = modelMatrix * vec4(position, 1.0);
+        vW = w.xyz;
+        gl_Position = projectionMatrix * viewMatrix * w;
+      }`,
+    fragmentShader: GLSL_COMMON + `
+      uniform float uTime, uLevel, uMistSteps;
+      uniform vec3 uBoxMin, uBoxMax;
+      varying vec3 vW;
+      void main() {
+        vec3 ro = cameraPosition;
+        vec3 rd = normalize(vW - ro);
+        vec3 bmin = vec3(uBoxMin.x, max(uBoxMin.y, uLevel), uBoxMin.z);
+        vec3 inv = 1.0 / rd;
+        vec3 ta = (bmin - ro) * inv, tb = (uBoxMax - ro) * inv;
+        vec3 tmn = min(ta, tb), tmx = max(ta, tb);
+        float t0 = max(max(max(tmn.x, tmn.y), tmn.z), 0.0);
+        float t1 = min(min(tmx.x, tmx.y), tmx.z);
+        if (t1 <= t0) discard;
+        float dt = (t1 - t0) / uMistSteps;
+        float jit = hash12(gl_FragCoord.xy + fract(uTime * 7.3) * 113.0);
+        float n = uRain;
+        vec3 acc = vec3(0.0);
+        for (int i = 0; i < 32; i++) {
+          if (float(i) >= uMistSteps) break;
+          vec3 p = ro + rd * (t0 + dt * (float(i) + jit));
+          float hy = p.y - uLevel;
+          vec3 q = p * 0.35 + vec3(uTime * 0.25, uTime * 0.3, uTime * 0.05);
+          float dens = (0.01 + 0.05 * n) * exp(-hy / 3.0) + 0.18 * n * n * exp(-hy / 0.35);
+          dens *= 0.5 + 0.8 * vnoise(q) + 0.35 * vnoise(q * 2.7 + 3.0);
+          acc += dens * (lightAt(p) * 1.1 + AMB * 0.4) * dt;
+        }
+        gl_FragColor = vec4(acc * 0.16, 1.0);
+      }`,
+  });
+  const mesh = new THREE.Mesh(g, m);
+  mesh.renderOrder = -4;
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
+const rain = buildRain();
+const splash = buildSplash();
+const water = buildWater();
+const mist = buildMist();
+scene.add(buildSky(), water, buildStreet(), buildLamp(0), buildLamp(1), buildBusStop(), buildCar(), people.group, buildGauge(), mist, rain, splash);
+
+/* ---------- 后期：泛光 + 色调映射 ---------- */
+const overlay = new THREE.Scene();
+const isGL2 = renderer.capabilities.isWebGL2;
+const rtScene = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: isGL2 ? 4 : 0 });
+const rtA = [0, 1, 2].map(() => new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false }));
+const rtB = [0, 1, 2].map(() => new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false }));
+const fsCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const fsQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
+fsQuad.frustumCulled = false;
+const fsScene = new THREE.Scene();
+fsScene.add(fsQuad);
+const FS_VERT = `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+const fsMat = (u, frag) => new THREE.ShaderMaterial({ uniforms: u, vertexShader: FS_VERT, fragmentShader: frag, depthTest: false, depthWrite: false });
+const matDown = fsMat({ tSrc: { value: null }, uTexel: { value: new THREE.Vector2() }, uThresh: { value: 0 } }, `
+  uniform sampler2D tSrc; uniform vec2 uTexel; uniform float uThresh;
+  varying vec2 vUv;
+  void main() {
+    vec3 c = texture2D(tSrc, vUv + uTexel * vec2(-1.0, -1.0)).rgb + texture2D(tSrc, vUv + uTexel * vec2(1.0, -1.0)).rgb
+           + texture2D(tSrc, vUv + uTexel * vec2(-1.0, 1.0)).rgb + texture2D(tSrc, vUv + uTexel * vec2(1.0, 1.0)).rgb;
+    c *= 0.25;
+    float l = max(max(c.r, c.g), c.b);
+    c *= smoothstep(uThresh, uThresh + 0.5, l);
+    gl_FragColor = vec4(c, 1.0);
+  }`);
+const matBlur = fsMat({ tSrc: { value: null }, uDir: { value: new THREE.Vector2() } }, `
+  uniform sampler2D tSrc; uniform vec2 uDir;
+  varying vec2 vUv;
+  void main() {
+    vec3 c = texture2D(tSrc, vUv).rgb * 0.2270;
+    c += (texture2D(tSrc, vUv + uDir * 1.3846).rgb + texture2D(tSrc, vUv - uDir * 1.3846).rgb) * 0.3162;
+    c += (texture2D(tSrc, vUv + uDir * 3.2308).rgb + texture2D(tSrc, vUv - uDir * 3.2308).rgb) * 0.0703;
+    gl_FragColor = vec4(c, 1.0);
+  }`);
+const matComp = fsMat({
+  tScene: { value: rtScene.texture }, tB0: { value: rtA[0].texture }, tB1: { value: rtA[1].texture }, tB2: { value: rtA[2].texture },
+  uBloom: { value: 0.4 }, uExposure: { value: 0.95 }, uTime: uniforms.uTime,
+}, `
+  uniform sampler2D tScene, tB0, tB1, tB2;
+  uniform float uBloom, uExposure, uTime;
+  varying vec2 vUv;
+  float h(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+  void main() {
+    vec3 c = texture2D(tScene, vUv).rgb;
+    vec3 b = texture2D(tB0, vUv).rgb * 0.45 + texture2D(tB1, vUv).rgb * 0.7 + texture2D(tB2, vUv).rgb * 0.9;
+    c += b * uBloom;
+    c = 1.0 - exp(-c * uExposure);
+    c = pow(c, vec3(1.0 / 2.0));   // 线性 → 显示
+    float vg = length((vUv - 0.5) * vec2(1.25, 1.0));
+    c *= 1.0 - 0.35 * smoothstep(0.35, 0.95, vg);
+    c += (h(gl_FragCoord.xy + fract(uTime) * 61.0) - 0.5) / 255.0;
+    gl_FragColor = vec4(c, 1.0);
+  }`);
+function fsPass(mat, target) {
+  fsQuad.material = mat;
+  renderer.setRenderTarget(target);
+  renderer.render(fsScene, fsCam);
+}
+function sizeTargets() {
+  const w = Math.max(1, Math.floor(window.innerWidth * pixelRatio));
+  const h = Math.max(1, Math.floor(window.innerHeight * pixelRatio));
+  rtScene.setSize(w, h);
+  rtRefl.setSize(Math.max(1, w >> 1), Math.max(1, h >> 1));
+  uniforms.uReflTexel.value.set(2 / w, 2 / h);
+  for (let i = 0; i < 3; i++) {
+    const d = 2 << i;
+    rtA[i].setSize(Math.max(1, w / d | 0), Math.max(1, h / d | 0));
+    rtB[i].setSize(Math.max(1, w / d | 0), Math.max(1, h / d | 0));
+  }
+}
+sizeTargets();
+function renderFrame() {
+  water.position.y = uniforms.uLevel.value;
+  updateReflCam();
+  water.visible = splash.visible = mist.visible = false;
+  uniforms.uReflPass.value = 1;
+  renderer.setRenderTarget(rtRefl);
+  renderer.clear();
+  renderer.render(scene, reflCam);
+  uniforms.uReflPass.value = 0;
+  water.visible = splash.visible = mist.visible = true;
+  renderer.setRenderTarget(rtScene);
+  renderer.clear();
+  renderer.render(scene, camera);
+  let src = rtScene;
+  for (let i = 0; i < 3; i++) {
+    matDown.uniforms.tSrc.value = src.texture;
+    matDown.uniforms.uTexel.value.set(0.5 / src.width, 0.5 / src.height);
+    matDown.uniforms.uThresh.value = i === 0 ? 0.9 : 0;
+    fsPass(matDown, rtA[i]);
+    const w = rtA[i].width, h = rtA[i].height;
+    matBlur.uniforms.tSrc.value = rtA[i].texture; matBlur.uniforms.uDir.value.set(1 / w, 0); fsPass(matBlur, rtB[i]);
+    matBlur.uniforms.tSrc.value = rtB[i].texture; matBlur.uniforms.uDir.value.set(0, 1 / h); fsPass(matBlur, rtA[i]);
+    src = rtA[i];
+  }
+  fsPass(matComp, null);
+  renderer.autoClear = false;
+  renderer.render(overlay, camera);
+  renderer.autoClear = true;
+}
+
+/* =====================================================================
+ * 水尺刻度标注（叠加层，不参与泛光）
+ * ===================================================================== */
+function makeText(rows, worldH, align = 'left') {
+  // rows: [{t, size, weight, color, gap}]
+  const S = 4; // 超采样
+  const c = document.createElement('canvas');
+  const ctx = c.getContext('2d');
+  let w = 0, h = 0;
+  rows.forEach(r => {
+    ctx.font = `${r.weight || 400} ${r.size * S}px ${FONT}`;
+    w = Math.max(w, ctx.measureText(r.t).width);
+    h += (r.size + (r.gap || 0)) * S;
+  });
+  const pad = 4 * S;
+  c.width = Math.ceil(w + pad * 2); c.height = Math.ceil(h + pad * 2);
+  let y = pad;
+  rows.forEach(r => {
+    ctx.font = `${r.weight || 400} ${r.size * S}px ${FONT}`;
+    ctx.fillStyle = r.color || '#fff';
+    ctx.textBaseline = 'top';
+    ctx.textAlign = align;
+    ctx.fillText(r.t, align === 'left' ? pad : align === 'right' ? c.width - pad : c.width / 2, y + (r.gap || 0) * S);
+    y += (r.size + (r.gap || 0)) * S;
+  });
+  const tex = new THREE.CanvasTexture(c);
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
+  const scale = worldH / (h / S);
+  const gw = c.width / S * scale, gh = c.height / S * scale;
+  const geo = new THREE.PlaneGeometry(gw, gh);
+  // 锚点：align 对应的一侧、垂直居中
+  geo.translate(align === 'left' ? gw / 2 - pad / S * scale : align === 'right' ? -gw / 2 + pad / S * scale : 0, 0, 0);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder = 11;
+  return mesh;
+}
+
+const marks = [];   // { mesh, y }：始终朝向镜头，没入水下时变暗
+const gx = GAUGE.clone().add(new THREE.Vector3(0.09, 0, 0.02));
+[[0.5, '50 cm'], [1.0, '1 m'], [1.5, '1.5 m'], [2.0, '2 m']].forEach(([y, t]) => {
+  const m = makeText([{ t, size: 13, weight: 600, color: 'rgba(255,255,255,0.92)' }], 0.085);
+  m.position.set(gx.x + 0.05, y, gx.z);
+  overlay.add(m);
+  marks.push({ mesh: m, y });
+});
+// 当前水位线
+const levelLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-0.1, 0, 0), new THREE.Vector3(0.16, 0, 0)]),
+  new THREE.LineBasicMaterial({ color: 0xffd2a0, transparent: true, opacity: 0.95, depthTest: false }));
+levelLine.position.copy(GAUGE);
+overlay.add(levelLine);
+
+function updateMarks() {
+  const lv = uniforms.uLevel.value;
+  marks.forEach(({ mesh, y }) => {
+    mesh.quaternion.copy(camera.quaternion);
+    mesh.material.opacity = y < lv ? 0.35 : 1;
+  });
+  levelLine.position.y = lv + 0.003;
+  levelLine.visible = lv > 0.002;
+}
+
+/* =====================================================================
+ * 时间：从 00:00 播放到 24:00；雨势跟随当前小时，积水按累计雨量上涨
+ * ===================================================================== */
+const SEC_PER_HOUR = 2.5;
+const play = { t: 0, on: false };
+const hourAt = t => Math.min(23, Math.floor(t));
+function cumAt(t) {
+  const h = Math.floor(t);
+  let s = 0;
+  for (let i = 0; i < Math.min(h, 24); i++) s += data[i];
+  if (h < 24) s += data[h] * (t - h);
+  return s;
+}
+const btnPlay = document.getElementById('btnPlay');
+function setPlaying(on) {
+  play.on = on;
+  btnPlay.classList.toggle('playing', on);
+  btnPlay.title = on ? '暂停' : '播放';
+}
+btnPlay.addEventListener('click', () => {
+  if (!play.on && play.t >= 24) play.t = 0;
+  setPlaying(!play.on);
+});
+window.addEventListener('keydown', e => {
+  if (e.target.closest && e.target.closest('input, textarea, #panel, #about, #intro, #result')) return;
+  if (intro.classList.contains('open') || resultEl.classList.contains('open')) return;
+  if (e.code === 'Space') { btnPlay.click(); e.preventDefault(); }
+  else if (e.key === 'ArrowLeft') { play.t = Math.max(0, Math.ceil(play.t) - 1); e.preventDefault(); }
+  else if (e.key === 'ArrowRight') { play.t = Math.min(24, Math.floor(play.t) + 1); e.preventDefault(); }
+});
+
+/* ---------- 全天时间轴：24 根小时雨量柱 + 播放头，可拖动 ---------- */
+const tl = document.getElementById('tl');
+const tlTip = document.getElementById('tlTip');
+const TL = { w: 600, h: 84, pl: 46, pr: 10, pt: 10, pb: 20 };
+let tlBars = [], tlHead = null, tlPast = -1;
+function svgEl(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  parent && parent.appendChild(e);
+  return e;
+}
+const tlX = t => TL.pl + (TL.w - TL.pl - TL.pr) * t / 24;
+function drawTimeline() {
+  // 宽高都按实际尺寸取，窄屏上 CSS 会把时间轴压矮
+  TL.w = Math.max(200, tl.clientWidth || 600);
+  TL.h = Math.max(40, tl.clientHeight || 84);
+  TL.pl = TL.w < 420 ? 36 : 46;
+  tl.setAttribute('viewBox', `0 0 ${TL.w} ${TL.h}`);
+  tl.innerHTML = '';
+  const ax = niceAxis(Math.max(...data.slice(0, 24)));
+  const y0 = TL.h - TL.pb, ph = y0 - TL.pt;
+  const yv = v => y0 - ph * v / ax.top;
+  svgEl('line', { class: 'grid', x1: TL.pl, x2: TL.w - TL.pr, y1: yv(ax.top), y2: yv(ax.top) }, tl);
+  svgEl('text', { class: 'lab', x: TL.pl - 8, y: yv(ax.top) + 3.5, 'text-anchor': 'end' }, tl).textContent = fmtTick(ax.top);
+  svgEl('text', { class: 'lab', x: TL.pl - 8, y: yv(ax.top) + 15, 'text-anchor': 'end' }, tl).textContent = 'mm/h';
+  const slot = (TL.w - TL.pl - TL.pr) / 24, bw = Math.min(24, slot - 2), r = Math.min(4, bw / 2);
+  tlBars = data.slice(0, 24).map((v, i) => {
+    const x = tlX(i) + (slot - bw) / 2, h = Math.max(0, y0 - yv(v));
+    const rr = Math.min(r, h);
+    const d = h < 0.5 ? `M${x},${y0}h${bw}` : `M${x},${y0}V${y0 - h + rr}Q${x},${y0 - h} ${x + rr},${y0 - h}H${x + bw - rr}Q${x + bw},${y0 - h} ${x + bw},${y0 - h + rr}V${y0}Z`;
+    return svgEl('path', { class: 'bar', d }, tl);
+  });
+  svgEl('line', { class: 'base', x1: TL.pl, x2: TL.w - TL.pr, y1: y0 + 0.5, y2: y0 + 0.5 }, tl);
+  for (let hr = 0; hr <= 24; hr += 3) {
+    svgEl('text', { class: 'lab', x: tlX(hr), y: TL.h - 5, 'text-anchor': 'middle' }, tl).textContent = pad2(hr);
+  }
+  tlHead = svgEl('g', { class: 'ph' }, tl);
+  svgEl('line', { x1: 0, x2: 0, y1: TL.pt - 6, y2: y0 + 4 }, tlHead);
+  svgEl('circle', { cx: 0, cy: TL.pt - 6, r: 4 }, tlHead);
+  tlPast = -1;
+  updateTimeline();
+}
+function updateTimeline() {
+  if (!tlHead) return;
+  tlHead.setAttribute('transform', `translate(${tlX(play.t).toFixed(1)},0)`);
+  const past = Math.floor(play.t);
+  if (past !== tlPast) {
+    tlPast = past;
+    tlBars.forEach((b, i) => b.classList.toggle('future', i > past));
+  }
+}
+function tlTime(e) {
+  const r = tl.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width * TL.w;
+  return Math.min(24, Math.max(0, (x - TL.pl) / (TL.w - TL.pl - TL.pr) * 24));
+}
+let tlDrag = false;
+tl.addEventListener('pointerdown', e => { tlDrag = true; tl.setPointerCapture(e.pointerId); play.t = tlTime(e); e.preventDefault(); });
+tl.addEventListener('pointermove', e => {
+  const t = tlTime(e);
+  if (tlDrag) play.t = t;
+  const h = hourAt(t), v = data[h];
+  tlTip.innerHTML = `<b>${pad2(h)}–${pad2(h + 1)} 时</b><span>${v.toFixed(1)} mm · ${gradeName(v, GRADE_1H)}</span>`;
+  const r = tl.getBoundingClientRect();
+  tlTip.style.left = (tlX(h + 0.5) / TL.w * r.width) + 'px';
+  tlTip.classList.add('show');
+});
+tl.addEventListener('pointerleave', () => tlTip.classList.remove('show'));
+const endTl = () => { tlDrag = false; };
+tl.addEventListener('pointerup', endTl);
+tl.addEventListener('pointercancel', endTl);
+
+/* ---------- 读数 + “已没过”清单 ---------- */
+const hudEls = {
+  clock: document.getElementById('hClock'), depth: document.getElementById('hDepth'), body: document.getElementById('hBody'),
+  rate: document.getElementById('hRate'), grade: document.getElementById('hGrade'), sum: document.getElementById('hSum'),
+};
+const hudLast = {};
+function setText(k, s) { if (hudLast[k] !== s) { hudLast[k] = s; hudEls[k].textContent = s; } }
+const msList = document.getElementById('hList');
+const msItems = MILESTONES.map(([h, name]) => {
+  const li = document.createElement('li');
+  li.innerHTML = `<span class="h">${h < 1 ? Math.round(h * 100) + ' cm' : h.toFixed(h % 1 ? 1 : 0) + ' m'}</span><span class="n">${name}</span>`;
+  msList.appendChild(li);
+  return li;
+});
+let msPassed = -2;
+function depthWord(m) {
+  let k = -1;
+  MILESTONES.forEach(([h], i) => { if (m >= h) k = i; });
+  if (k >= 0) return `已没过${MILESTONES[k][1]}`;
+  if (m < 0.003) return '路面湿了，开始积水';
+  return `还没漫过路沿（再涨 ${Math.ceil((CURB_H - m) * 100)} cm）`;
+}
+function updateHud(cum) {
+  const mins = Math.min(1440, Math.round(play.t * 60));
+  setText('clock', `${pad2(Math.floor(mins / 60))}:${pad2(mins % 60)}`);
+  const m = cum / 1000;
+  setText('depth', (cum / 10).toFixed(1));
+  setText('body', depthWord(m));
+  const v = data[hourAt(play.t)];
+  setText('rate', v.toFixed(1));
+  setText('grade', gradeName(v, GRADE_1H));
+  setText('sum', cum.toFixed(1));
+  let k = -1;
+  MILESTONES.forEach(([h], i) => { if (m >= h) k = i; });
+  if (k !== msPassed) {
+    msPassed = k;
+    const lo = Math.max(0, Math.min(k - 1, msItems.length - 3));   // 窄屏只显示的三条：最近没过的两条 + 下一条
+    msItems.forEach((li, i) => {
+      li.classList.toggle('on', i <= k); li.classList.toggle('next', i === k + 1); li.classList.toggle('near', i >= lo && i < lo + 3);
+    });
+  }
+}
+
+/* =====================================================================
+ * 开场：先猜，再看。猜一个全天结束时的积水深度，播放时在水尺上标出来，播完对照
+ * ===================================================================== */
+const intro = document.getElementById('intro');
+const inFig = document.getElementById('inFig');
+const resultEl = document.getElementById('result');
+const guess = { cm: 20, set: false, passed: false, shown: false };
+const FIG = { g: 284, s: 1.25 };   // 地面的 y、每厘米的像素数
+function heightWord(m) {
+  let name = '';
+  MILESTONES.forEach(([h, n]) => { if (m >= h - 1e-9) name = n; });
+  if (name) return `没过${name}`;
+  return m < 0.005 ? '路面几乎没有积水' : '还没漫过路沿';
+}
+function dayText() {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(meta.date || '');
+  const d = m ? `${+m[1]} 年 ${+m[2]} 月 ${+m[3]} 日` : '这一天';
+  const place = (meta.region || '').replace(/（.*?）|\(.*?\)/g, '').trim();
+  return place ? `${d}，${place}` : d;
+}
+function drawFig() {
+  const { g, s } = FIG, y = cm => g - cm * s;
+  let h = '';
+  // 人：成年人 170 cm、孩子 120 cm（以成年人身高为 170 个单位画，再整体缩放）
+  const person = (x, H) => `<g transform="translate(${x},${g}) scale(${s * H / 170})">
+    <circle class="pp" cx="0" cy="-159" r="11"/>
+    <rect class="pp" x="-19" y="-146" width="38" height="62" rx="12"/>
+    <rect class="pp" x="-27" y="-142" width="9" height="56" rx="4.5"/><rect class="pp" x="18" y="-142" width="9" height="56" rx="4.5"/>
+    <rect class="pp" x="-16" y="-90" width="14" height="90" rx="5"/><rect class="pp" x="2" y="-90" width="14" height="90" rx="5"/></g>`;
+  h += person(62, 170) + person(128, 120);
+  // 路沿
+  h += `<rect class="pp" x="0" y="${y(15)}" width="22" height="${15 * s}"/>`;
+  const wy = y(guess.cm);
+  h += `<rect class="wt" x="0" y="${wy}" width="186" height="${g - wy}"/><line class="ws" x1="0" x2="186" y1="${wy}" y2="${wy}"/>`;
+  h += `<line class="gd" x1="0" x2="186" y1="${g}" y2="${g}"/>`;
+  for (let c = 0; c <= 200; c += 10) {
+    h += `<line class="tk" x1="192" x2="${c % 50 ? 197 : 202}" y1="${y(c)}" y2="${y(c)}"/>`;
+    if (c % 50 === 0) h += `<text class="tl" x="206" y="${y(c) + 3.5}">${c < 100 ? c + ' cm' : c / 100 + ' m'}</text>`;
+  }
+  h += `<circle class="hd" cx="186" cy="${wy}" r="6"/>`;
+  inFig.innerHTML = h;
+  document.getElementById('inVal').textContent = guess.cm;
+  document.getElementById('inWord').textContent = heightWord(guess.cm / 100);
+}
+function figSet(e) {
+  const r = inFig.getBoundingClientRect();
+  const yv = (e.clientY - r.top) / r.height * 300;
+  guess.cm = Math.round(Math.max(0, Math.min(200, (FIG.g - yv) / FIG.s)));
+  drawFig();
+}
+let figDrag = false;
+inFig.addEventListener('pointerdown', e => { figDrag = true; inFig.setPointerCapture(e.pointerId); figSet(e); e.preventDefault(); });
+inFig.addEventListener('pointermove', e => { if (figDrag) figSet(e); });
+inFig.addEventListener('pointerup', () => (figDrag = false));
+inFig.addEventListener('pointercancel', () => (figDrag = false));
+
+// 水尺上“你猜的”刻度
+let guessText = null;
+const guessLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-0.14, 0, 0), new THREE.Vector3(0.1, 0, 0)]),
+  new THREE.LineBasicMaterial({ color: 0x9fd0ff, transparent: true, opacity: 0.95, depthTest: false }));
+guessLine.visible = false;
+overlay.add(guessLine);
+function updateGuessMark() {
+  if (guessText) { overlay.remove(guessText); guessText.geometry.dispose(); guessText.material.map.dispose(); guessText.material.dispose(); guessText = null; }
+  guessLine.visible = guess.set;
+  if (!guess.set) return;
+  const y = guess.cm / 100;
+  guessLine.position.set(GAUGE.x, y, GAUGE.z + 0.02);
+  guessText = makeText([{ t: `你猜的 ${guess.cm} cm`, size: 13, weight: 600, color: 'rgba(170,215,255,0.95)' }], 0.085, 'right');
+  guessText.position.set(GAUGE.x - 0.17, y, GAUGE.z + 0.02);
+  overlay.add(guessText);
+}
+function updateGuess(cum) {
+  if (guessText) guessText.quaternion.copy(camera.quaternion);
+  if (guess.set && !guess.passed && guess.cm > 0 && cum / 10 >= guess.cm) {
+    guess.passed = true;
+    toast(`水位超过了你猜的 ${guess.cm} 厘米`);
+  }
+}
+
+function openIntro() {
+  setPlaying(false);
+  resultEl.classList.remove('open');
+  document.getElementById('inQ').innerHTML = `${dayText()}下了一整天的雨。<br>如果雨水既不排走、也不流走，<br>到这一天结束时，路面会积多深？`;
+  drawFig();
+  intro.classList.add('open');
+  setTimeout(() => inFig.focus(), 50);
+}
+function startPlay(withGuess) {
+  guess.set = withGuess; guess.passed = false; guess.shown = false;
+  updateGuessMark();
+  intro.classList.remove('open');
+  resultEl.classList.remove('open');
+  play.t = 0;
+  setPlaying(true);
+}
+document.getElementById('inGo').addEventListener('click', () => startPlay(true));
+document.getElementById('inSkip').addEventListener('click', () => startPlay(false));
+intro.addEventListener('keydown', e => {
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    guess.cm = Math.max(0, Math.min(200, guess.cm + (e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey ? 10 : 1)));
+    drawFig(); e.preventDefault();
+  } else if (e.key === 'Enter' && e.target === inFig) startPlay(true);
+  else if (e.key === 'Escape') startPlay(false);
+});
+
+function showResult() {
+  guess.shown = true;
+  const act = cumAt(24) / 10, g = guess.cm;
+  document.getElementById('rsG').textContent = g;
+  document.getElementById('rsA').textContent = act.toFixed(1);
+  let say;
+  if (Math.abs(act - g) <= Math.max(2, act * 0.1)) say = '猜得很准。';
+  else if (act > g) say = g > 0 ? `实际是你猜的 ${(act / g).toFixed(act / g >= 10 ? 0 : 1)} 倍。` : `实际有 ${act.toFixed(1)} 厘米。`;
+  else say = `比你猜的浅 ${(g - act).toFixed(1)} 厘米。`;
+  document.getElementById('rsSay').textContent = `${say}这么多雨落在不排水的路面上，会${heightWord(act / 100)}。`;
+  resultEl.classList.add('open');
+}
+document.getElementById('rsAgain').addEventListener('click', () => startPlay(guess.set));
+document.getElementById('rsGuess').addEventListener('click', openIntro);
+document.getElementById('rsClose').addEventListener('click', () => resultEl.classList.remove('open'));
+resultEl.addEventListener('click', e => { if (e.target === resultEl) resultEl.classList.remove('open'); });
+
+/* =====================================================================
+ * 数据联动
+ * ===================================================================== */
+function syncScene() {
+  drawTimeline();
+}
+const placeEl = document.getElementById('place');
+function buildTitle() {
+  placeEl.textContent = [meta.region, meta.date].filter(Boolean).join(' · ') || '未填写地区和日期';
+}
+buildTitle();
+
+canvas.addEventListener('pointerdown', () => canvas.classList.add('dragging'));
+window.addEventListener('pointerup', () => canvas.classList.remove('dragging'));
+
+/* =====================================================================
+ * 编辑面板
+ * ===================================================================== */
+const panel = document.getElementById('panel');
+const btnPanel = document.getElementById('btnPanel');
+function setPanel(open) {
+  panel.classList.toggle('open', open);
+  btnPanel.classList.toggle('on', open);
+}
+btnPanel.addEventListener('click', () => setPanel(!panel.classList.contains('open')));
+document.getElementById('btnClose').addEventListener('click', () => setPanel(false));
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && panel.classList.contains('open')) setPanel(false);
+});
+
+const toastEl = document.getElementById('toast');
+let toastTimer;
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1600);
+}
+
+/* ---------- 收起 / 展开界面 ---------- */
+const chromeEls = [document.getElementById('hud'), document.getElementById('dock')];
+const btnChrome = document.getElementById('btnChrome');
+let chromeOn = true;
+function setChrome(on) {
+  chromeOn = on;
+  chromeEls.forEach(e => e.classList.toggle('off', !on));
+  btnChrome.classList.toggle('off', !on);
+  btnChrome.title = on ? '收起界面，只看画面' : '展开界面';
+}
+btnChrome.addEventListener('click', () => setChrome(!chromeOn));
+if (/[?&]clean/.test(location.search)) setChrome(false);
+
+/* ---------- 每小时雨量：拖动柱子 + 数字输入，改动即时生效 ---------- */
+const NS = 'http://www.w3.org/2000/svg';
+const barsSvg = document.getElementById('bars');
+const barsT = document.getElementById('barsT'), barsV = document.getElementById('barsV'), barsG = document.getElementById('barsG');
+const pnSum = document.getElementById('pnSum');
+const BV = { w: 348, h: 150, l: 34, r: 10, t: 8, b: 18 };
+let selHour = 16, readHour = -1, barAx = { top: 250, step: 50 }, barDrag = false;
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  parent && parent.appendChild(e);
+  return e;
+}
+const bx = i => BV.l + (BV.w - BV.l - BV.r) * i / 24;
+const by = v => BV.h - BV.b - (BV.h - BV.t - BV.b) * v / barAx.top;
+function drawChart() {
+  if (!barDrag) barAx = niceAxis(Math.max(...data.slice(0, 24)));
+  BV.w = Math.max(200, barsSvg.clientWidth || 348);
+  BV.h = Math.max(100, barsSvg.clientHeight || 150);
+  barsSvg.setAttribute('viewBox', `0 0 ${BV.w} ${BV.h}`);
+  barsSvg.innerHTML = '';
+  for (let v = 0; v <= barAx.top + 1e-9; v += barAx.step) {
+    if (v > 0) el('line', { class: 'grid', x1: BV.l, x2: BV.w - BV.r, y1: by(v), y2: by(v) }, barsSvg);
+    el('text', { class: 'lab', x: BV.l - 6, y: by(v) + 3.5, 'text-anchor': 'end' }, barsSvg).textContent = fmtTick(round1(v));
+  }
+  const slot = (BV.w - BV.l - BV.r) / 24, bw = Math.min(24, slot - 2);
+  for (let i = 0; i < 24; i++) {
+    const x = bx(i) + (slot - bw) / 2, y0 = by(0), h = Math.max(0, y0 - by(data[i])), r = Math.min(2, bw / 2, h);
+    const d = h < 0.5 ? `M${x},${y0}h${bw}` : `M${x},${y0}V${y0 - h + r}Q${x},${y0 - h} ${x + r},${y0 - h}H${x + bw - r}Q${x + bw},${y0 - h} ${x + bw},${y0 - h + r}V${y0}Z`;
+    el('path', { class: 'b' + (i === selHour ? ' on' : ''), d }, barsSvg);
+  }
+  el('line', { class: 'base', x1: BV.l, x2: BV.w - BV.r, y1: by(0) + 0.5, y2: by(0) + 0.5 }, barsSvg);
+  for (let h = 0; h <= 24; h += 6) el('text', { class: 'lab', x: bx(h), y: BV.h - 4, 'text-anchor': 'middle' }, barsSvg).textContent = pad2(h);
+  const hr = readHour >= 0 ? readHour : selHour;
+  barsT.textContent = `${pad2(hr)}–${pad2(hr + 1)} 时`;
+  barsV.textContent = data[hr].toFixed(1);
+  barsG.textContent = gradeName(data[hr], GRADE_1H);
+  const total = round1(data.slice(0, 24).reduce((a, b) => a + b, 0));
+  pnSum.innerHTML = `全天合计<b>${total.toFixed(1)}</b>毫米，按日雨量属${gradeName(total, GRADE_24H)}。`;
+  inputs.forEach((inp, i) => inp.classList.toggle('on', i === selHour));
+}
+function barAt(e) {
+  const r = barsSvg.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width * BV.w, y = (e.clientY - r.top) / r.height * BV.h;
+  const i = Math.max(0, Math.min(23, Math.floor((x - BV.l) / (BV.w - BV.l - BV.r) * 24)));
+  const v = (BV.h - BV.b - y) / (BV.h - BV.t - BV.b) * barAx.top;
+  return { i, v: Math.max(0, Math.min(barAx.top, v)) };
+}
+function setValue(i, v) {
+  data[i] = clampVal(v);
+  drawChart();
+  syncInputs(i);
+  syncScene();
+}
+barsSvg.addEventListener('pointerdown', e => {
+  const p = barAt(e);
+  selHour = p.i; barDrag = true;
+  barsSvg.setPointerCapture(e.pointerId);
+  setValue(p.i, p.v);
+  barsSvg.focus();
+  e.preventDefault();
+});
+barsSvg.addEventListener('pointermove', e => {
+  const p = barAt(e);
+  if (barDrag) { selHour = p.i; setValue(p.i, p.v); }
+  else if (readHour !== p.i) { readHour = p.i; drawChart(); }
+});
+barsSvg.addEventListener('pointerleave', () => { if (!barDrag && readHour >= 0) { readHour = -1; drawChart(); } });
+function endBarDrag() {
+  if (!barDrag) return;
+  barDrag = false;
+  saveData(); markEdited();
+  drawChart();
+}
+barsSvg.addEventListener('pointerup', endBarDrag);
+barsSvg.addEventListener('pointercancel', endBarDrag);
+barsSvg.addEventListener('keydown', e => {
+  const step = e.shiftKey ? 1 : 0.1;
+  if (e.key === 'ArrowUp') setValue(selHour, data[selHour] + step);
+  else if (e.key === 'ArrowDown') setValue(selHour, data[selHour] - step);
+  else if (e.key === 'ArrowLeft') { selHour = Math.max(0, selHour - 1); drawChart(); }
+  else if (e.key === 'ArrowRight') { selHour = Math.min(23, selHour + 1); drawChart(); }
+  else return;
+  e.preventDefault();
+});
+barsSvg.addEventListener('keyup', e => { if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { saveData(); markEdited(); } });
+
+// 24 个小时的数字框：输入即生效，离开时整理格式并保存
+const hrsEl = document.getElementById('hrs');
+const inputs = [];
+for (let i = 0; i < 24; i++) {
+  const lab = document.createElement('label');
+  lab.className = 'hr';
+  lab.innerHTML = `<span>${pad2(i)}–${pad2(i + 1)}</span><input inputmode="decimal" spellcheck="false" aria-label="${pad2(i)} 时至 ${pad2(i + 1)} 时的雨量（毫米）">`;
+  const inp = lab.querySelector('input');
+  inp.addEventListener('focus', () => { selHour = i; drawChart(); });
+  inp.addEventListener('input', () => {
+    const v = parseFloat(inp.value);
+    if (isFinite(v)) { data[i] = clampVal(v); drawChart(); syncScene(); }
+  });
+  inp.addEventListener('change', () => { inp.value = data[i].toFixed(1); saveData(); markEdited(); });
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter') inp.blur();
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      setValue(i, data[i] + (e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey ? 1 : 0.1));
+      inp.value = data[i].toFixed(1);
+      e.preventDefault();
+    }
+  });
+  hrsEl.appendChild(lab);
+  inputs.push(inp);
+}
+function syncInputs(only) {
+  inputs.forEach((inp, i) => {
+    if (only !== undefined && only !== i) return;
+    if (document.activeElement !== inp) inp.value = data[i].toFixed(1);
+  });
+}
+document.getElementById('btnReset').addEventListener('click', () => {
+  data = DEFAULT_DATA.slice();
+  meta = { ...DEFAULT_META };
+  saveData(); saveMeta(); syncScene(); drawChart(); syncInputs(); syncMeta(); buildTitle();
+  setUndo(null);
+  toast('已换回 2021 年郑州“7·20”的数据');
+});
+
+/* =====================================================================
+ * 一键导入：CSV / JSON → 一天 25 个点
+ * 每个整点的值 = 该小时的降雨量（mm），24:00 缺省时沿用 23:00
+ * ===================================================================== */
+const metaRegion = document.getElementById('metaRegion');
+const metaDate = document.getElementById('metaDate');
+const ioNote = document.getElementById('ioNote');
+const lnkUndo = document.getElementById('lnkUndo');
+const fileInput = document.getElementById('fileInput');
+
+function syncMeta() {
+  metaRegion.value = meta.region;
+  metaDate.value = meta.date;
+  metaRegion.classList.remove('need'); metaDate.classList.remove('need');
+}
+function onMetaInput() {
+  meta.region = metaRegion.value.trim();
+  meta.date = metaDate.value;
+  if (meta.region) metaRegion.classList.remove('need');
+  if (meta.date) metaDate.classList.remove('need');
+  saveMeta(); buildTitle(); fitCamera();
+}
+metaRegion.addEventListener('change', onMetaInput);
+metaDate.addEventListener('change', onMetaInput);
+syncMeta();
+
+function markEdited() {
+  if ((meta.file || meta.source) && !meta.edited) { meta.edited = true; saveMeta(); }
+}
+function note(msg, kind) {
+  ioNote.textContent = msg;
+  ioNote.className = 'io-note' + (kind ? ' ' + kind : '');
+}
+
+let undoState = null;
+function setUndo(state) {
+  undoState = state;
+  lnkUndo.hidden = !state;
+}
+lnkUndo.addEventListener('click', () => {
+  if (!undoState) return;
+  data = undoState.data; meta = undoState.meta;
+  saveData(); saveMeta(); syncScene(); drawChart(); syncInputs(); syncMeta(); buildTitle(); fitCamera();
+  setUndo(null);
+  note('已撤销导入，恢复到导入前的数据。');
+  toast('已撤销导入');
+});
+
+const REGION_RE = /^(地区|地点|区域|站点|站名|测站|城市|region|station|city|location|site)$/i;
+const DATE_RE = /^(日期|date|day)$/i;
+const SOURCE_RE = /^(来源|数据来源|资料来源|source)$/i;
+const COL_VAL = /雨|降水|precip|rain|value|amount|mm/i;
+const COL_TIME = /时间|时刻|小时|时次|time|hour|datetime/i;
+const COL_REGION = /地区|地点|区域|站|城市|region|station|city|location|site/i;
+const COL_DATE = /日期|date|day/i;
+
+function decodeText(buf) {
+  const u8 = new Uint8Array(buf);
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(u8).replace(/^﻿/, ''); }
+  catch (e) { return new TextDecoder('gbk').decode(u8); } // Excel 中文版另存的 CSV 多为 GBK
+}
+function splitRows(text) {
+  const lines = text.split(/\r\n|\n|\r/).filter(l => l.trim());
+  const sample = lines.slice(0, 20).join('\n');
+  const delim = [',', '\t', ';', '，', '|'].map(d => [d, sample.split(d).length]).sort((a, b) => b[1] - a[1])[0][0];
+  return lines.map(l => {
+    const out = []; let cur = '', q = false;
+    for (let i = 0; i < l.length; i++) {
+      const ch = l[i];
+      if (q) { if (ch === '"' && l[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === delim) { out.push(cur.trim()); cur = ''; }
+      else cur += ch;
+    }
+    out.push(cur.trim());
+    return out;
+  });
+}
+function parseDate(s) {
+  s = String(s);
+  let m = /(\d{4})\s*[-\/.年]\s*(\d{1,2})\s*[-\/.月]\s*(\d{1,2})/.exec(s);
+  if (!m) m = /^(\d{4})(\d{2})(\d{2})(?:\d{2}){0,2}$/.exec(s.trim());
+  if (!m) return '';
+  const y = +m[1], mo = +m[2], d = +m[3];
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return '';
+  return `${y}-${pad2(mo)}-${pad2(d)}`;
+}
+// 返回 { date, min }，min 为当天的分钟数（0–1440），认不出时间返回 null
+function parseTime(s) {
+  s = String(s).trim();
+  if (!s) return null;
+  const compact = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})?$/.exec(s); // 2026101308 / 202610130810
+  if (compact) return { date: parseDate(s), min: +compact[4] * 60 + (+compact[5] || 0) };
+  const date = parseDate(s);
+  const rest = date ? s.replace(/(\d{4})\s*[-\/.年]\s*(\d{1,2})\s*[-\/.月]\s*(\d{1,2})\s*日?/, ' ').trim() : s;
+  let m = /(\d{1,2})\s*[:：时点]\s*(\d{1,2})?/.exec(rest);
+  if (!m) m = /^(\d{1,2})$/.exec(rest);
+  if (!m) return date ? { date, min: null } : null;
+  const h = +m[1], mi = +(m[2] || 0);
+  if (h > 24 || mi > 59 || (h === 24 && mi > 0)) return null;
+  return { date, min: h * 60 + mi };
+}
+// 数值：空 / 缺测 → null；微量 → 0；大于 9999 视为缺测代码（如 32766、999999）
+function parseVal(s) {
+  if (typeof s === 'number') return isFinite(s) && s < 9999 ? s : null;
+  s = String(s == null ? '' : s).trim();
+  if (!s || /^(-|--|na|n\/a|nan|null|缺测|无数据)$/i.test(s)) return null;
+  if (/^(t|微量|trace)$/i.test(s) || /^0(\.0+)?t$/i.test(s)) return 0;
+  const m = /^[-+]?\d*\.?\d+/.exec(s.replace(/\s*(mm|毫米)(\/h|\/小时)?$/i, ''));
+  if (!m || m[0] !== s.replace(/\s*(mm|毫米)(\/h|\/小时)?$/i, '')) return undefined; // undefined：不是数值
+  const v = parseFloat(m[0]);
+  return v >= 9999 ? null : v;
+}
+
+// 表格 → { records: [{date, region, min, v}], region, date, bare: [数字…] }
+function parseTable(rows) {
+  const res = { records: [], region: '', date: '', source: '', bare: [] };
+  let cols = null;
+  for (const r of rows) {
+    if (r.length === 2 && REGION_RE.test(r[0]) && parseVal(r[1]) === undefined) { res.region = r[1]; continue; }
+    if (r.length === 2 && DATE_RE.test(r[0]) && parseDate(r[1])) { res.date = parseDate(r[1]); continue; }
+    if (r.length >= 2 && SOURCE_RE.test(r[0])) { res.source = r.slice(1).filter(Boolean).join('，'); continue; }
+    if (!cols && r.length >= 2 && r.every(c => parseVal(c) === undefined || c === '') && r.some(c => COL_VAL.test(c) || COL_TIME.test(c))) {
+      cols = { val: -1, time: -1, region: -1, date: -1 };
+      r.forEach((c, i) => {
+        if (cols.val < 0 && COL_VAL.test(c)) cols.val = i;
+        else if (cols.time < 0 && COL_TIME.test(c)) cols.time = i;
+        else if (cols.region < 0 && COL_REGION.test(c)) cols.region = i;
+        else if (cols.date < 0 && COL_DATE.test(c)) cols.date = i;
+      });
+      if (cols.val < 0) cols = null;
+      continue;
+    }
+    let vi, ti = [], region = '';
+    if (cols) {
+      vi = cols.val;
+      if (cols.date >= 0) ti.push(cols.date);
+      if (cols.time >= 0) ti.push(cols.time);
+      if (cols.region >= 0) region = r[cols.region] || '';
+    } else {
+      // 没有表头：最后一个数值列当雨量，其余列拼起来当时间
+      vi = -1;
+      for (let i = r.length - 1; i >= 0; i--) if (parseVal(r[i]) !== undefined && r[i] !== '') { vi = i; break; }
+      if (vi < 0) continue;
+      for (let i = 0; i < r.length; i++) if (i !== vi) ti.push(i);
+      if (!ti.length) { r.forEach(c => { const v = parseVal(c); if (v !== undefined) res.bare.push(v); }); continue; }
+    }
+    const v = parseVal(r[vi]);
+    if (v === undefined) continue;
+    const t = parseTime(ti.map(i => r[i] || '').join(' '));
+    if (!t || t.min == null) {
+      if (cols ? !ti.length : r.every(c => parseVal(c) !== undefined)) (cols ? [r[vi]] : r).forEach(c => res.bare.push(parseVal(c)));
+      continue;
+    }
+    res.records.push({ date: t.date, region, min: t.min, v });
+  }
+  return res;
+}
+function parseJSON(obj) {
+  const res = { records: [], region: '', date: '', source: '', bare: [] };
+  let arr = obj;
+  if (obj && !Array.isArray(obj) && typeof obj === 'object') {
+    for (const k in obj) {
+      if (REGION_RE.test(k) && typeof obj[k] === 'string') res.region = obj[k];
+      else if (DATE_RE.test(k)) res.date = parseDate(obj[k]);
+      else if (SOURCE_RE.test(k) && typeof obj[k] === 'string') res.source = obj[k];
+    }
+    arr = obj.data || obj.values || obj.hourly || obj.records || obj.rain || obj['降雨量'] || obj['数据'];
+  }
+  if (!Array.isArray(arr)) throw new Error('JSON 里没有找到降雨数据数组（data / values / hourly）');
+  for (const it of arr) {
+    if (typeof it === 'number' || typeof it === 'string') { const v = parseVal(it); if (v !== undefined) res.bare.push(v); continue; }
+    if (!it || typeof it !== 'object') continue;
+    let v, t = null, region = '', date = '';
+    for (const k in it) {
+      if (v === undefined && COL_VAL.test(k)) v = parseVal(it[k]);
+      else if (!t && COL_TIME.test(k)) t = typeof it[k] === 'number' ? { date: '', min: it[k] * 60 } : parseTime(it[k]);
+      else if (COL_REGION.test(k)) region = String(it[k]);
+      else if (COL_DATE.test(k)) date = parseDate(it[k]);
+    }
+    if (v === undefined) continue;
+    if (!t || t.min == null) { res.bare.push(v); continue; }
+    res.records.push({ date: t.date || date, region, min: t.min, v });
+  }
+  return res;
+}
+
+function mostCommon(list) {
+  const c = new Map();
+  list.forEach(x => x && c.set(x, (c.get(x) || 0) + 1));
+  let best = '', n = 0;
+  c.forEach((k, x) => { if (k > n) { best = x; n = k; } });
+  return { best, kinds: c.size };
+}
+// 解析结果 → 25 个点
+function toDay(res, notes) {
+  let recs = res.records, region = res.region, date = res.date;
+  if (!recs.length && res.bare.length) {
+    const n = res.bare.length, step = 1440 / n;
+    if (n === 25) recs = res.bare.map((v, i) => ({ min: i * 60, v }));
+    else if (Number.isInteger(step) && [5, 10, 15, 20, 30, 60].includes(step)) recs = res.bare.map((v, i) => ({ min: i * step, v }));
+    else throw new Error(`读到 ${n} 个数值，但没有时间列，无法对应到小时（需要 24 个逐时值，或带时间列）`);
+  }
+  if (!recs.length) throw new Error('没有读到降雨数据。请确认有“时间”和“降雨量”两列，或下载模板对照格式');
+
+  const d = mostCommon(recs.map(r => r.date));
+  if (d.kinds > 1) { notes.push(`文件里有 ${d.kinds} 个日期，已取数据最多的 ${d.best}`); recs = recs.filter(r => !r.date || r.date === d.best); }
+  if (d.best) date = d.best;
+  const g = mostCommon(recs.map(r => r.region));
+  if (g.kinds > 1) { notes.push(`文件里有 ${g.kinds} 个地区，已取 ${g.best}`); recs = recs.filter(r => !r.region || r.region === g.best); }
+  if (g.best) region = g.best;
+
+  const mins = recs.map(r => r.min);
+  const has0 = mins.includes(0), has24 = mins.includes(1440);
+  const hours = new Array(24).fill(null);
+  let p24 = null;
+  if (mins.every(m => m % 60 === 0)) {
+    // 逐时数据：只有 01–24 时说明是“时段末”标注（01 时 = 00–01 时的雨量）
+    const shift = has24 && !has0 ? -1 : 0;
+    if (shift) notes.push('时间为 01–24 时，按“时段末”理解（01 时 = 00–01 时）');
+    const seen = new Set();
+    recs.forEach(r => {
+      const h = r.min / 60 + shift;
+      if (h === 24) { if (r.v != null) p24 = r.v; return; }
+      if (seen.has(h)) return;
+      seen.add(h);
+      hours[h] = r.v;
+    });
+  } else {
+    // 分钟级数据：按小时累加；没有 00:00 的记录说明标的是时段末
+    const endLabel = !has0;
+    const step = Math.min(...mins.filter(m => m % 60 !== 0).map(m => m % 60));
+    notes.push(`读到约 ${step} 分钟一条的数据，已按小时累加`);
+    recs.forEach(r => {
+      if (r.v == null) return;
+      const h = Math.floor((endLabel ? r.min - 1 : r.min) / 60);
+      if (h < 0 || h > 23) return;
+      hours[h] = (hours[h] || 0) + r.v;
+    });
+  }
+
+  if (hours.some(v => v != null && v < 0)) { notes.push('负值已当作缺测处理'); hours.forEach((v, i) => { if (v < 0) hours[i] = null; }); }
+  const known = hours.map((v, i) => (v == null ? -1 : i)).filter(i => i >= 0);
+  if (known.length < 6) throw new Error(`只读到 ${known.length} 个小时的有效数据，至少需要 6 个小时`);
+  const filled = [];
+  for (let i = 0; i < 24; i++) {
+    if (hours[i] != null) continue;
+    const a = known.filter(k => k < i).pop(), b = known.find(k => k > i);
+    hours[i] = a == null ? hours[b] : b == null ? hours[a] : hours[a] + (hours[b] - hours[a]) * (i - a) / (b - a);
+    filled.push(hh(i).slice(0, 2));
+  }
+  if (filled.length) notes.push(`缺 ${filled.length} 个小时（${filled.join('、')} 时），已按前后插值补齐`);
+  const over = hours.filter(v => v > MAX_VAL).length + (p24 > MAX_VAL ? 1 : 0);
+  if (over) notes.push(`${over} 个值超过 ${MAX_VAL} mm/h，已按 ${MAX_VAL} 显示`);
+  const out = hours.map(clampVal);
+  out.push(p24 != null ? clampVal(p24) : out[23]);
+  return { data: out, region: String(region || '').trim().slice(0, 30), date, source: String(res.source || '').trim().slice(0, 200) };
+}
+
+async function importFile(file) {
+  if (!file) return;
+  const notes = [];
+  try {
+    const text = decodeText(await file.arrayBuffer());
+    const isJSON = /\.json$/i.test(file.name) || /^\s*[\[{]/.test(text);
+    let res;
+    if (isJSON) {
+      let obj;
+      try { obj = JSON.parse(text); } catch (e) { throw new Error('JSON 格式有误：' + e.message); }
+      res = parseJSON(obj);
+    } else res = parseTable(splitRows(text));
+    const day = toDay(res, notes);
+    setUndo({ data: data.slice(), meta: { ...meta } });
+    data = day.data;
+    meta = { region: day.region, date: day.date, file: file.name, edited: false, source: day.source };
+    saveData(); saveMeta(); syncScene(); drawChart(); syncInputs(); syncMeta(); buildTitle(); fitCamera();
+    const miss = [];
+    if (!meta.region) { miss.push('地区'); metaRegion.classList.add('need'); }
+    if (!meta.date) { miss.push('日期'); metaDate.classList.add('need'); }
+    const total = round1(data.slice(0, 24).reduce((s, v) => s + v, 0));
+    note([`已导入 ${file.name}：全天 ${total} mm`, ...notes, miss.length ? `文件里没有${miss.join('和')}，请在上方补充` : ''].filter(Boolean).join('\n'), 'ok');
+    setPanel(true);
+    toast(miss.length ? `导入成功，请补充${miss.join('和')}` : '导入成功');
+  } catch (e) {
+    note(`导入失败（${file.name}）：${e.message}\n当前数据未改动。`, 'err');
+    setPanel(true);
+    toast('导入失败');
+  }
+}
+
+document.getElementById('btnImport').addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => { importFile(fileInput.files[0]); fileInput.value = ''; });
+
+// 把文件拖进页面
+const dropEl = document.getElementById('drop');
+let dragDepth = 0;
+const hasFiles = e => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+window.addEventListener('dragenter', e => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; dropEl.classList.add('show'); });
+window.addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault(); });
+window.addEventListener('dragleave', e => { if (!hasFiles(e)) return; if (--dragDepth <= 0) { dragDepth = 0; dropEl.classList.remove('show'); } });
+window.addEventListener('drop', e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault(); dragDepth = 0; dropEl.classList.remove('show');
+  importFile(e.dataTransfer.files[0]);
+});
+
+function download(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name.replace(/[\\/:*?"<>|]/g, '_');
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
+document.getElementById('lnkTemplate').addEventListener('click', () => {
+  const lines = [`地区,${meta.region || '示例市'}`, `日期,${meta.date || todayStr()}`, `来源,${(meta.source || '请填写数据来源').replace(/[,，\r\n]+/g, '；')}`, '时间,降雨量(mm)'];
+  for (let i = 0; i <= 24; i++) lines.push(`${hh(i)},${data[i].toFixed(1)}`);
+  download(new Blob(['﻿' + lines.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' }), `降雨数据模板_${meta.region || '示例市'}_${meta.date || todayStr()}.csv`);
+});
+
+/* =====================================================================
+ * 一键导出：折线图 + 总结报告（白底 PNG 长图）
+ * 等级依据 GB/T 28592-2012《降水量等级》
+ * ===================================================================== */
+const GRADE_1H = [0.1, 1.6, 7, 15, 40, 50];   // 1 小时：小雨 中雨 大雨 暴雨 大暴雨 特大暴雨
+const GRADE_24H = [0.1, 10, 25, 50, 100, 250]; // 24 小时
+const GRADE_NAMES = ['小雨', '中雨', '大雨', '暴雨', '大暴雨', '特大暴雨'];
+const gradeIdx = (v, table) => { let g = -1; table.forEach((t, i) => { if (v >= t - 1e-9) g = i; }); return g; };
+const gradeName = (v, table) => (gradeIdx(v, table) < 0 ? '无有效降水' : GRADE_NAMES[gradeIdx(v, table)]);
+// 逐时等级配色：单色蓝阶，大暴雨及以上合并为最深一档
+const GRADE_FILL = ['#86b6ef', '#5598e7', '#2a78d6', '#1c5cab', '#104281'];
+const NO_RAIN_FILL = '#f0efec';
+const gradeFill = v => { const g = gradeIdx(v, GRADE_1H); return g < 0 ? NO_RAIN_FILL : GRADE_FILL[Math.min(4, g)]; };
+
+function periodWord(h) {
+  return h < 6 ? '凌晨' : h < 9 ? '早晨' : h < 12 ? '上午' : h < 14 ? '中午' : h < 18 ? '下午' : h < 20 ? '傍晚' : '夜间';
+}
+function spanText(s, e) { // s..e 为小时序号（含 e）
+  const a = periodWord(s), b = periodWord(e);
+  return `${a === b ? a : a + '至' + b} ${hh(s)}–${hh(e + 1)}`;
+}
+
+function rainStats() {
+  const v = data.slice(0, 24);
+  const total = round1(v.reduce((s, x) => s + x, 0));
+  const maxV = Math.max(...v), maxH = v.indexOf(maxV);
+  const rainy = v.map((x, i) => (x >= 0.1 ? i : -1)).filter(i => i >= 0);
+  let w3 = -1, w3s = 0;
+  for (let i = 0; i <= 21; i++) { const s = v[i] + v[i + 1] + v[i + 2]; if (s > w3) { w3 = s; w3s = i; } }
+  const thr = Math.max(0.1, maxV * 0.5);
+  const runs = [];
+  for (let i = 0; i < 24; i++) {
+    if (v[i] < thr) continue;
+    let j = i; while (j + 1 < 24 && v[j + 1] >= thr) j++;
+    runs.push({ s: i, e: j, sum: round1(v.slice(i, j + 1).reduce((a, b) => a + b, 0)) });
+    i = j;
+  }
+  const byGrade = GRADE_NAMES.map((_, g) => v.filter(x => gradeIdx(x, GRADE_1H) === g).length);
+  return { v, total, maxV, maxH, rainy, w3: round1(w3), w3s, runs, byGrade, dayGrade: gradeName(total, GRADE_24H) };
+}
+
+function summaryParas(st) {
+  const who = (meta.region || '该地区') + (meta.date ? ` ${meta.date} ` : '');
+  if (st.total < 0.1) return [`${who}全天无有效降水（累计不足 0.1 mm）。`];
+  const out = [];
+  out.push(`${who}全天累计降水 ${st.total} mm，按日降水量等级属${st.dayGrade}。`);
+
+  const first = st.rainy[0], last = st.rainy[st.rainy.length - 1];
+  let p = `降雨出现在 ${hh(first)}–${hh(last + 1)}，有效降雨时长 ${st.rainy.length} 小时。`;
+  const pct = r => Math.round(r.sum / st.total * 100);
+  if (st.runs.length === 1) {
+    const r = st.runs[0];
+    p += `雨势呈单峰型，${spanText(r.s, r.e)}为主降雨时段，累计 ${r.sum} mm，占全天的 ${pct(r)}%。`;
+  } else if (st.runs.length === 2) {
+    const [a, b] = st.runs;
+    p += `雨势呈双峰型：${spanText(a.s, a.e)}（${a.sum} mm）和${spanText(b.s, b.e)}（${b.sum} mm）为两段集中降雨，合计占全天的 ${pct({ sum: a.sum + b.sum })}%。`;
+  } else {
+    const big = st.runs.slice().sort((x, y) => y.sum - x.sum)[0];
+    p += `雨势起伏多变，共出现 ${st.runs.length} 段集中降雨，其中${spanText(big.s, big.e)}雨量最大（${big.sum} mm）。`;
+  }
+  out.push(p);
+
+  let q = `最大小时雨强 ${st.maxV.toFixed(1)} mm/h，出现在 ${hh(st.maxH)}–${hh(st.maxH + 1)}，达${gradeName(st.maxV, GRADE_1H)}量级；最强 3 小时累计 ${st.w3} mm（${hh(st.w3s)}–${hh(st.w3s + 3)}）。`;
+  const parts = [];
+  for (let g = GRADE_NAMES.length - 1; g >= 0; g--) if (st.byGrade[g]) parts.push(`${GRADE_NAMES[g]}级 ${st.byGrade[g]} 小时`);
+  if (parts.length) q += `逐时统计：${parts.join('，')}。`;
+  if (st.maxV >= 20) q += '其间出现短时强降水（小时雨强 ≥20 mm）。';
+  out.push(q);
+
+  const tips = {
+    小雨: '降雨对出行影响较小，外出注意携带雨具。',
+    中雨: '路面湿滑，出行注意交通安全。',
+    大雨: '降雨较强，注意防范低洼路段积水，减少不必要的出行。',
+    暴雨: '需防范城市内涝、山洪及地质灾害等次生灾害。',
+    大暴雨: '降雨极强，需严密防范城市内涝、山洪、泥石流等次生灾害，非必要不外出。',
+    特大暴雨: '降雨极端，需严密防范城市内涝、山洪、泥石流等次生灾害，非必要不外出。',
+  };
+  out.push('影响提示：' + (st.maxV >= 20 && st.dayGrade !== '暴雨' && !/大暴雨/.test(st.dayGrade) ? tips[st.dayGrade].replace(/。$/, '') + '，并留意短时强降水带来的积水。' : tips[st.dayGrade]));
+  return out;
+}
+
+function niceAxis(max) {
+  const raw = Math.max(max * 1.15, 2) / 5;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(k => k * mag).find(s => s >= raw);
+  return { step, top: Math.ceil(Math.max(max * 1.15, 2) / step) * step };
+}
+function wrapText(ctx, text, width) {
+  const lines = []; let cur = '';
+  for (const ch of text) {
+    if (ctx.measureText(cur + ch).width > width && cur) {
+      // 不在数字中间断行
+      const m = /[\d.]+$/.exec(cur);
+      if (/[\d.]/.test(ch) && m && m[0].length < cur.length) { lines.push(cur.slice(0, -m[0].length)); cur = m[0] + ch; continue; }
+      // 标点不放行首
+      if (/[，。、；：）%」』]/.test(ch)) { lines.push(cur.slice(0, -1)); cur = cur.slice(-1) + ch; }
+      else { lines.push(cur); cur = ch; }
+    } else cur += ch;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+
+const MONO = getComputedStyle(document.documentElement).getPropertyValue('--mono');
+function renderReport() {
+  const st = rainStats();
+  const W = 1080, P = 64, S = 2, IW = W - P * 2;
+  const INK = '#0b0b0b', INK2 = '#52514e', MUTED = '#8a8985', RULE = '#e6e5e0', SERIES = '#2a78d6';
+  const f = (size, weight = 400, mono) => `${weight} ${size}px ${mono ? MONO : FONT}`;
+  const c = document.createElement('canvas');
+  let ctx = c.getContext('2d');
+
+  // 先排版文字，算出总高度
+  const paras = summaryParas(st);
+  ctx.font = f(17);
+  const paraLines = paras.map(p => wrapText(ctx, p, IW));
+  const source = [
+    meta.source ? `数据来源：${meta.source}` : '',
+    meta.file ? `数据文件：${meta.file}` : '',
+    meta.edited ? '（数据在载入后经手动调整）' : '',
+  ].filter(Boolean).join('　') || '数据：页面手动录入';
+  const foot = [source, '日降水量为 00–24 时逐时雨量之和；降水等级依据 GB/T 28592-2012《降水量等级》；影响提示仅依据雨量等级自动生成，以当地气象部门发布为准。'];
+  ctx.font = f(13);
+  const footLines = foot.flatMap(t => wrapText(ctx, t, IW));
+  const CHART_H = 400, CELL_H = 58, GAP = 2;
+  const summaryH = paraLines.reduce((s, l) => s + l.length * 30, 0) + (paraLines.length - 1) * 12;
+  const Htot = P + 48 + 40 + 1 + 28 + 124 + 52 + 28 + CHART_H + 52 + 28 + CELL_H * 4 + GAP * 3 + 52 + 28 + summaryH + 36 + 1 + 20 + footLines.length * 22 + 48;
+
+  c.width = W * S; c.height = Math.ceil(Htot * S);
+  ctx = c.getContext('2d');
+  ctx.scale(S, S);
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, Htot);
+  ctx.textBaseline = 'alphabetic';
+  let y = P;
+
+  // 标题
+  ctx.fillStyle = INK; ctx.font = f(40, 700); ctx.textAlign = 'left';
+  ctx.fillText('降雨日报', P, y + 38);
+  const now = new Date();
+  ctx.fillStyle = MUTED; ctx.font = f(14); ctx.textAlign = 'right';
+  ctx.fillText(`生成于 ${todayStr()} ${pad2(now.getHours())}:${pad2(now.getMinutes())}`, W - P, y + 36);
+  y += 48;
+  ctx.textAlign = 'left'; ctx.fillStyle = INK2; ctx.font = f(22);
+  ctx.fillText(`${meta.region || '未填写地区'}　·　${meta.date || '未填写日期'}`, P, y + 28);
+  y += 40;
+  ctx.fillStyle = RULE; ctx.fillRect(P, y, IW, 1); y += 1 + 28;
+
+  // 指标卡
+  const tiles = [
+    ['日降水总量', st.total.toFixed(1), 'mm', '00–24 时累计'],
+    ['日降水等级', st.dayGrade, '', '按 24 小时降水量'],
+    ['最大小时雨强', st.maxV.toFixed(1), 'mm/h', st.maxV >= 0.1 ? `${hh(st.maxH)}–${hh(st.maxH + 1)} · ${gradeName(st.maxV, GRADE_1H)}` : '—'],
+    ['有效降雨时长', String(st.rainy.length), '小时', '雨量 ≥0.1 mm 的小时'],
+  ];
+  const TW = (IW - 16 * 3) / 4;
+  tiles.forEach(([label, val, unit, sub], i) => {
+    const x = P + i * (TW + 16);
+    ctx.fillStyle = '#f5f5f2'; roundRect(ctx, x, y, TW, 124, 12); ctx.fill();
+    ctx.fillStyle = INK2; ctx.font = f(15); ctx.fillText(label, x + 20, y + 34);
+    ctx.fillStyle = INK; ctx.font = f(val.length > 3 && !unit ? 32 : 38, 700, !!unit);
+    ctx.fillText(val, x + 20, y + 80);
+    if (unit) { const vw = ctx.measureText(val).width; ctx.fillStyle = INK2; ctx.font = f(16); ctx.fillText(unit, x + 20 + vw + 6, y + 80); }
+    ctx.fillStyle = MUTED; ctx.font = f(13); ctx.fillText(sub, x + 20, y + 106);
+  });
+  y += 124 + 52;
+
+  const section = (t, right) => {
+    ctx.textAlign = 'left'; ctx.fillStyle = INK; ctx.font = f(20, 700); ctx.fillText(t, P, y + 20);
+    if (right) { ctx.textAlign = 'right'; ctx.fillStyle = MUTED; ctx.font = f(13); ctx.fillText(right, W - P, y + 19); ctx.textAlign = 'left'; }
+    y += 28;
+  };
+
+  // 折线图
+  section('每小时雨量', '单位：mm/h　右侧为小时雨强等级');
+  const ax = niceAxis(Math.max(...data));
+  const X0 = P + 44, X1 = W - P - 64, Y0 = y + 16, Y1 = y + CHART_H - 34;
+  const px = i => X0 + (X1 - X0) * i / 24, py = v => Y1 - (Y1 - Y0) * v / ax.top;
+  ctx.font = f(13, 400, true); ctx.fillStyle = MUTED;
+  for (let v = 0; v <= ax.top + 1e-9; v += ax.step) {
+    ctx.fillStyle = v === 0 ? '#c3c2b7' : '#ecebe6'; ctx.fillRect(X0, Math.round(py(v)), X1 - X0, 1);
+    ctx.fillStyle = MUTED; ctx.textAlign = 'right'; ctx.fillText(fmtTick(round1(v)), X0 - 10, py(v) + 4);
+  }
+  ctx.textAlign = 'center';
+  for (let h = 0; h <= 24; h += 2) ctx.fillText(pad2(h), px(h), Y1 + 22);
+  // 等级分界（虚线）+ 右侧色条和名称
+  const bounds = [0, ...GRADE_1H.slice(1, 5), Infinity];
+  for (let g = 0; g < 5; g++) {
+    const lo = Math.max(0.1, bounds[g]), hi = Math.min(ax.top, bounds[g + 1]);
+    if (lo >= ax.top) break;
+    const ya = py(hi), yb = py(lo);
+    ctx.fillStyle = GRADE_FILL[g]; ctx.fillRect(X1 + 6, ya, 5, yb - ya);
+    if (yb - ya >= 16) { ctx.fillStyle = INK2; ctx.font = f(12); ctx.textAlign = 'left'; ctx.fillText(g === 4 ? '大暴雨+' : GRADE_NAMES[g], X1 + 16, (ya + yb) / 2 + 4); }
+    if (g > 0) { ctx.strokeStyle = '#d3d2cb'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(X0, Math.round(yb) + 0.5); ctx.lineTo(X1, Math.round(yb) + 0.5); ctx.stroke(); ctx.setLineDash([]); }
+  }
+  // 面积 + 折线
+  ctx.beginPath(); ctx.moveTo(px(0), py(0));
+  data.forEach((v, i) => ctx.lineTo(px(i), py(v)));
+  ctx.lineTo(px(24), py(0)); ctx.closePath();
+  ctx.fillStyle = 'rgba(42,120,214,0.10)'; ctx.fill();
+  ctx.beginPath(); data.forEach((v, i) => (i ? ctx.lineTo(px(i), py(v)) : ctx.moveTo(px(i), py(v))));
+  ctx.strokeStyle = SERIES; ctx.lineWidth = 2.5; ctx.lineJoin = ctx.lineCap = 'round'; ctx.stroke();
+  // 峰值标注
+  if (st.maxV >= 0.1) {
+    const kx = px(st.maxH), ky = py(st.maxV);
+    ctx.beginPath(); ctx.arc(kx, ky, 6, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+    ctx.beginPath(); ctx.arc(kx, ky, 4.5, 0, Math.PI * 2); ctx.fillStyle = SERIES; ctx.fill();
+    const lab = `峰值 ${st.maxV.toFixed(1)} mm/h · ${hh(st.maxH)}–${hh(st.maxH + 1)}`;
+    ctx.font = f(14, 700); const lw = ctx.measureText(lab).width;
+    const lx = Math.min(X1 - lw / 2, Math.max(X0 + lw / 2, kx)), ly = ky - 16 < Y0 + 8 ? ky + 26 : ky - 16;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(lx - lw / 2 - 4, ly - 15, lw + 8, 20);
+    ctx.fillStyle = INK; ctx.textAlign = 'center'; ctx.fillText(lab, lx, ly);
+  }
+  y += CHART_H + 52;
+
+  // 逐时数据表
+  section('逐时数据', '');
+  { // 图例
+    const items = [['无降水', NO_RAIN_FILL], ...GRADE_FILL.map((col, g) => [g === 4 ? '大暴雨及以上' : GRADE_NAMES[g], col])];
+    ctx.font = f(13); let lx = W - P;
+    for (let k = items.length - 1; k >= 0; k--) {
+      const [name, col] = items[k]; const tw = ctx.measureText(name).width;
+      lx -= tw; ctx.fillStyle = INK2; ctx.textAlign = 'left'; ctx.fillText(name, lx, y - 9);
+      lx -= 18; ctx.fillStyle = col; roundRect(ctx, lx, y - 21, 12, 12, 3); ctx.fill();
+      lx -= 16;
+    }
+  }
+  const CW6 = (IW - GAP * 5) / 6;
+  for (let i = 0; i < 24; i++) {
+    const x = P + (i % 6) * (CW6 + GAP), yy = y + Math.floor(i / 6) * (CELL_H + GAP), v = data[i];
+    const fill = gradeFill(v), dark = fill === GRADE_FILL[2] || fill === GRADE_FILL[3] || fill === GRADE_FILL[4];
+    ctx.fillStyle = fill; roundRect(ctx, x, yy, CW6, CELL_H, 8); ctx.fill();
+    ctx.textAlign = 'left'; ctx.fillStyle = dark ? 'rgba(255,255,255,0.85)' : 'rgba(11,11,11,0.72)'; ctx.font = f(12, 400, true);
+    ctx.fillText(`${pad2(i)}–${pad2(i + 1)} 时`, x + 12, yy + 22);
+    ctx.fillStyle = dark ? '#ffffff' : INK; ctx.font = f(20, 700, true);
+    ctx.fillText(v.toFixed(1), x + 12, yy + 47);
+  }
+  y += CELL_H * 4 + GAP * 3 + 52;
+
+  // 总结
+  section('总结', '');
+  ctx.textAlign = 'left'; ctx.font = f(17); ctx.fillStyle = '#24231f';
+  paraLines.forEach((ls, k) => {
+    ls.forEach(l => { ctx.fillText(l, P, y + 21); y += 30; });
+    if (k < paraLines.length - 1) y += 12;
+  });
+  y += 36;
+  ctx.fillStyle = RULE; ctx.fillRect(P, y, IW, 1); y += 1 + 20;
+  ctx.fillStyle = MUTED; ctx.font = f(13);
+  footLines.forEach(l => { ctx.fillText(l, P, y + 14); y += 22; });
+  return c;
+}
+
+document.getElementById('btnExport').addEventListener('click', () => {
+  const c = renderReport();
+  const name = `降雨日报_${meta.region || '未命名地区'}_${meta.date || todayStr()}.png`;
+  c.toBlob(b => {
+    if (!b) { toast('导出失败'); return; }
+    download(b, name);
+    toast((!meta.region || !meta.date) ? '已导出（未填写地区/日期）' : '报告已导出');
+  }, 'image/png');
+});
+// ?report：直接在页面上预览报告（调试用）
+if (/[?&]report/.test(location.search)) {
+  const c = renderReport();
+  c.style.cssText = 'position:fixed;inset:0;z-index:100;width:100%;height:auto;background:#fff';
+  document.body.style.overflow = 'auto';
+  document.body.appendChild(c);
+}
+
+
+/* =====================================================================
+ * 关于作品
+ * ===================================================================== */
+const about = document.getElementById('about');
+const btnAbout = document.getElementById('btnAbout');
+function setAbout(open) {
+  if (open) {
+    const st = rainStats();
+    const head = [meta.region || '未填写地区', meta.date || '未填写日期'].join(' · ');
+    const body = [
+      `全天（00–24 时）累计 ${st.total.toFixed(1)} mm，最大小时雨强 ${st.maxV.toFixed(1)} mm/h（${hh(st.maxH)}–${hh(st.maxH + 1)}）。`,
+      meta.source ? `数据来源：${meta.source}。` : '数据来源：未注明（可在导入文件中加入“来源”一行）。',
+      meta.file ? `数据文件：${meta.file}。` : '',
+      meta.edited ? '数据在载入后经过手动调整。' : '',
+    ].filter(Boolean).join('');
+    document.getElementById('abSource').innerHTML = '';
+    const b = document.createElement('b'); b.textContent = head + '：';
+    document.getElementById('abSource').append(b, body);
+  }
+  about.classList.toggle('open', open);
+  btnAbout.classList.toggle('on', open);
+}
+btnAbout.addEventListener('click', () => setAbout(!about.classList.contains('open')));
+document.getElementById('btnAboutClose').addEventListener('click', () => setAbout(false));
+about.addEventListener('click', e => { if (e.target === about) setAbout(false); });
+window.addEventListener('keydown', e => { if (e.key === 'Escape' && about.classList.contains('open')) setAbout(false); });
+if (location.hash === '#about') setAbout(true);
+
+/* =====================================================================
+ * 程序生成的雨声
+ * ===================================================================== */
+const btnSound = document.getElementById('btnSound');
+const sound = { ctx: null, master: null, on: false, layers: null, dropTimer: null, level: 0.5 };
+function noiseBuffer(ctx, seconds, type) {
+  const len = Math.floor(ctx.sampleRate * seconds);
+  const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    let b0 = 0, b1 = 0, b2 = 0, last = 0;
+    for (let i = 0; i < len; i++) {
+      const w = Math.random() * 2 - 1;
+      if (type === 'pink') {
+        b0 = 0.99765 * b0 + w * 0.0990460; b1 = 0.96300 * b1 + w * 0.2965164; b2 = 0.57000 * b2 + w * 1.0526913;
+        d[i] = (b0 + b1 + b2 + w * 0.1848) * 0.11;
+      } else if (type === 'brown') {
+        last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5;
+      } else d[i] = w * 0.5;
+    }
+  }
+  return buf;
+}
+function initSound() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return false;
+  const ctx = new AC();
+  const master = ctx.createGain(); master.gain.value = 0;
+  const comp = ctx.createDynamicsCompressor();
+  master.connect(comp); comp.connect(ctx.destination);
+  const mk = (type, filters, gain) => {
+    const src = ctx.createBufferSource(); src.buffer = noiseBuffer(ctx, 4, type); src.loop = true;
+    let node = src;
+    filters.forEach(([t, f, q]) => { const bq = ctx.createBiquadFilter(); bq.type = t; bq.frequency.value = f; if (q) bq.Q.value = q; node.connect(bq); node = bq; });
+    const g = ctx.createGain(); g.gain.value = gain; node.connect(g); g.connect(master);
+    src.start(ctx.currentTime + Math.random());
+    return g;
+  };
+  sound.layers = {
+    rumble: mk('brown', [['lowpass', 420]], 0.55),
+    body: mk('pink', [['bandpass', 1300, 0.5]], 0.5),
+    hiss: mk('white', [['highpass', 4200], ['lowpass', 11000]], 0.11),
+  };
+  sound.ctx = ctx; sound.master = master;
+  sound.dropBuf = noiseBuffer(ctx, 0.08, 'white');
+  return true;
+}
+function playDrop() {
+  const { ctx, master } = sound;
+  const src = ctx.createBufferSource(); src.buffer = sound.dropBuf;
+  const bq = ctx.createBiquadFilter(); bq.type = 'bandpass'; bq.frequency.value = 1800 + Math.random() * 5000; bq.Q.value = 3 + Math.random() * 6;
+  const g = ctx.createGain(); const t = ctx.currentTime;
+  const amp = (0.08 + Math.random() * 0.28) * (0.4 + sound.level);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(amp, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.03 + Math.random() * 0.05);
+  const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+  src.connect(bq); bq.connect(g);
+  if (pan) { pan.pan.value = Math.random() * 1.6 - 0.8; g.connect(pan); pan.connect(master); } else g.connect(master);
+  src.start(t); src.stop(t + 0.1);
+}
+function dropLoop() {
+  if (!sound.on) return;
+  playDrop();
+  const rate = 8 + 70 * sound.level;  // 每秒雨滴声
+  sound.dropTimer = setTimeout(dropLoop, -Math.log(1 - Math.random()) / rate * 1000);
+}
+// 雨声跟随当前播放时刻的雨势
+function updateSoundLevel() {
+  sound.level = uniforms.uRain.value;
+  if (!sound.ctx) return;
+  const t = sound.ctx.currentTime, lv = sound.level;
+  sound.layers.rumble.gain.setTargetAtTime(0.35 + 0.5 * lv, t, 0.4);
+  sound.layers.body.gain.setTargetAtTime(0.2 + 0.6 * lv, t, 0.4);
+  sound.layers.hiss.gain.setTargetAtTime(0.05 + 0.12 * lv, t, 0.4);
+}
+btnSound.addEventListener('click', () => {
+  if (!sound.ctx && !initSound()) { toast('当前浏览器不支持音频'); return; }
+  sound.on = !sound.on;
+  const t = sound.ctx.currentTime;
+  if (sound.on) {
+    sound.ctx.resume();
+    updateSoundLevel();
+    sound.master.gain.cancelScheduledValues(t);
+    sound.master.gain.setTargetAtTime(0.6, t, 0.5);
+    dropLoop();
+  } else {
+    sound.master.gain.cancelScheduledValues(t);
+    sound.master.gain.setTargetAtTime(0, t, 0.25);
+    clearTimeout(sound.dropTimer);
+  }
+  setSoundIcon();
+});
+function setSoundIcon() {
+  btnSound.classList.toggle('on', sound.on);
+  btnSound.querySelector('.mute').style.display = sound.on ? 'none' : '';
+  btnSound.querySelectorAll('.w1,.w2').forEach(p => (p.style.display = sound.on ? '' : 'none'));
+}
+setSoundIcon();
+
+/* =====================================================================
+ * 渲染循环 + 自适应画质
+ * ===================================================================== */
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false);
+  sizeTargets();
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  uniforms.uScale.value = h / 2 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  fitCamera();
+  drawTimeline();
+  drawChart();
+}
+window.addEventListener('resize', resize);
+
+// 自动推拉镜头：开头是街道远景；水漫过路沿后推近到人和汽车；全天结束后拉远看整条街
+// 窄屏时沿视线方向后退，保证主体在画面里。用户动过镜头后不再干预，双击恢复自动
+const SHOTS = {
+  wide: [new THREE.Vector3(1.4, 3.0, 15.5), new THREE.Vector3(-0.4, 1.35, -3.0)],
+  near: [new THREE.Vector3(0.9, 1.8, 6.2), new THREE.Vector3(-1.5, 0.9, -1.7)],
+  end: [new THREE.Vector3(2.4, 4.6, 15.5), new THREE.Vector3(-1.2, 0.7, -2.6)],
+};
+let camFree = false;
+// 只有真的拖动、捏合或滚轮缩放过才算手动接管镜头；轻点画面不算
+const downAt = new Map();
+canvas.addEventListener('pointerdown', e => downAt.set(e.pointerId, [e.clientX, e.clientY]));
+canvas.addEventListener('pointermove', e => {
+  const p = downAt.get(e.pointerId);
+  if (p && (downAt.size > 1 || Math.hypot(e.clientX - p[0], e.clientY - p[1]) > 6)) camFree = true;
+});
+const pointerGone = e => downAt.delete(e.pointerId);
+canvas.addEventListener('pointerup', pointerGone);
+canvas.addEventListener('pointercancel', pointerGone);
+canvas.addEventListener('wheel', () => (camFree = true), { passive: true });
+function shotNow() {
+  const lv = uniforms.uLevel.value;
+  if (play.t >= 24 && !play.on) return 'end';
+  return lv >= CURB_H * 0.9 ? 'near' : 'wide';
+}
+const _cp = new THREE.Vector3(), _ct = new THREE.Vector3();
+function shotPose(name) {
+  const [p, t] = SHOTS[name];
+  const a = camera.aspect;
+  let k = Math.pow(Math.max(1, 1.75 / a), 0.9);
+  _ct.copy(t);
+  // 竖屏装不下整条街：不再一味后退，镜头对准人和水尺，车头留在画面左侧
+  if (a < 1) {
+    k = Math.min(k, name === 'near' ? 1.4 : 1.9);   // 近景再收一些：暴雨时镜头前的雨雾很浓
+    _ct.x = THREE.MathUtils.lerp(t.x, 0.5, Math.min(1, (1 - a) / 0.5));
+  }
+  _cp.copy(p).sub(t).multiplyScalar(k).add(_ct);
+}
+function fitCamera() {
+  if (camFree) return;
+  shotPose(shotNow());
+  controls.target.copy(_ct);
+  camera.position.copy(_cp);
+}
+function followShot(dt) {
+  if (camFree) return;
+  shotPose(shotNow());
+  const a = 1 - Math.exp(-dt * 0.55);
+  controls.target.lerp(_ct, a);
+  camera.position.lerp(_cp, a);
+}
+canvas.addEventListener('dblclick', () => { camFree = false; });
+// 触屏上双击不一定触发 dblclick：两次间隔很短、位置相近的轻点也恢复自动镜头
+// 用事件自身的时间戳：画面很重、主线程忙时，处理事件会滞后，但输入发生的时刻不变
+let tapDown = null, lastTap = null;
+canvas.addEventListener('pointerdown', e => {
+  if (e.pointerType !== 'mouse' && e.isPrimary) tapDown = { x: e.clientX, y: e.clientY, t: e.timeStamp };
+});
+canvas.addEventListener('pointerup', e => {
+  if (e.pointerType === 'mouse' || !tapDown) return;
+  const now = e.timeStamp;
+  if (now - tapDown.t < 300 && Math.hypot(e.clientX - tapDown.x, e.clientY - tapDown.y) < 12) {
+    if (lastTap && now - lastTap.t < 400 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40) { camFree = false; lastTap = null; }
+    else lastTap = { x: e.clientX, y: e.clientY, t: now };
+  }
+  tapDown = null;
+});
+
+const quality = { level: 1, frames: 0, acc: 0, settled: false, checks: 0 };
+function setQuality(q) {
+  quality.level = q;
+  rain.geometry.setDrawRange(0, Math.floor(RAIN_N * q) * 2);
+  splash.geometry.setDrawRange(0, Math.floor(SPLASH_N * q));
+  uniforms.uMistSteps.value = Math.max(8, Math.round(18 * Math.sqrt(q)));
+  uniforms.uAlpha.value = Math.min(1.8, 1 / Math.pow(q, 0.6)); // 粒子少时略提亮
+}
+if (isTouch) setQuality(0.6);
+function adapt(dt) {
+  if (quality.settled || document.hidden) return;
+  quality.frames++; quality.acc += dt;
+  if (quality.acc < 1.5) return;
+  const fps = quality.frames / quality.acc;
+  quality.frames = 0; quality.acc = 0; quality.checks++;
+  if (fps < 40 && quality.level > 0.2) {
+    if (!quality.told) { quality.told = true; toast('已自动降低画质以保持流畅'); }
+    if (pixelRatio > 1.25) { pixelRatio = 1.25; renderer.setPixelRatio(pixelRatio); uniforms.uPR.value = pixelRatio; resize(); }
+    else setQuality(Math.max(0.2, quality.level * 0.7));
+  } else if (quality.checks >= 3) quality.settled = true;
+}
+
+if (/[?&]fixq/.test(location.search)) quality.settled = true;
+{
+  const cm = /[?&]cam=([-\d.,]+)/.exec(location.search);
+  if (cm) { const c = cm[1].split(',').map(Number); camera.position.set(c[0], c[1], c[2]); controls.target.set(c[3], c[4], c[5]); controls.update(); camFree = true; }
+}
+// ?t=16.5：直接跳到某个时刻并暂停（截图、录屏用）
+const tParam = /[?&]t=([\d.]+)/.exec(location.search);
+if (tParam) play.t = Math.min(24, Math.max(0, parseFloat(tParam[1])));
+syncScene();
+drawChart();
+syncInputs();
+if (location.hash === '#edit') setPanel(true);
+// 初始雨势和水位直接取当前时刻，不从 0 缓入
+uniforms.uRain.value = rainLevel(data[hourAt(play.t)]);
+uniforms.uLevel.value = cumAt(play.t) / 1000;
+people.close = uniforms.uLevel.value > 0.04 ? 1 : 0;
+people.carry = uniforms.uLevel.value > 0.25 ? 1 : 0;
+fitCamera();   // 机位取决于水位，要在水位就绪之后再定
+// 开场先猜；?t= 截图时跳过（?intro 强制显示，?guess=30 直接设定猜测值）
+const gParam = /[?&]guess=(\d+)/.exec(location.search);
+if (gParam) { guess.cm = Math.min(200, +gParam[1]); guess.set = true; updateGuessMark(); }
+if (/[?&]intro/.test(location.search)) openIntro();
+else if (!tParam && !/[?&]nointro/.test(location.search)) setTimeout(openIntro, 900);
+if (tParam && play.t >= 24 && guess.set) showResult();
+
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+let last = performance.now();
+let ticks = 0;
+renderer.setAnimationLoop(now => {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  if (ticks++ > 1) adapt(dt);
+  uniforms.uTime.value += dt;
+
+  if (play.on) {
+    play.t += dt / SEC_PER_HOUR;
+    if (play.t >= 24) { play.t = 24; setPlaying(false); if (guess.set && !guess.shown) setTimeout(showResult, 1200); }
+  }
+  const cum = cumAt(play.t);
+  const k = Math.min(1, dt * (tlDrag ? 10 : 4));
+  uniforms.uRain.value += (rainLevel(data[hourAt(play.t)]) - uniforms.uRain.value) * k;
+  uniforms.uLevel.value += (cum / 1000 - uniforms.uLevel.value) * k;
+  uniforms.uWet.value = Math.min(1, uniforms.uLevel.value / 0.004);
+  if (Math.abs(sound.level - uniforms.uRain.value) > 0.01) updateSoundLevel();
+  // 汽车双闪：约 1.4 Hz，远低于引发光敏不适的闪烁频率
+  const hz = (uniforms.uTime.value * 1.4) % 1 < 0.5 ? 1 : 0;
+  uniforms.uHazard.value = hz;
+  HAZARD.forEach(i => uLC[i].set(1.0, 0.55, 0.08).multiplyScalar(hz * HAZARD_I));
+
+  followShot(dt);
+  updatePeople(dt, uniforms.uTime.value, uniforms.uLevel.value, uniforms.uRain.value);
+  controls.update();
+  // 镜头不进到水面以下
+  const minY = uniforms.uLevel.value + 0.25;
+  if (camera.position.y < minY) camera.position.y = minY;
+  // 雨很大时镜头像手持拍摄一样轻微晃动（只在渲染时叠加，不影响操作）；系统设置了“减少动态效果”时不晃
+  const shake = reduceMotion.matches ? 0 : Math.max(0, (uniforms.uRain.value - 0.55) / 0.45);
+  const T = uniforms.uTime.value;
+  const sx = shake * 0.035 * (Math.sin(T * 1.7) + 0.5 * Math.sin(T * 4.3 + 1.0));
+  const sy = shake * 0.025 * (Math.sin(T * 2.3 + 2.0) + 0.5 * Math.sin(T * 5.1));
+  camera.position.x += sx; camera.position.y += sy;
+  camera.updateMatrixWorld();
+  updateMarks();
+  updateTimeline();
+  updateHud(cum);
+  updateGuess(cum);
+  renderFrame();
+  camera.position.x -= sx; camera.position.y -= sy;
+});
+
+if (/[?&]fixq/.test(location.search)) document.getElementById('fade').remove();
+else requestAnimationFrame(() => setTimeout(() => document.getElementById('fade').classList.add('gone'), 120));
+})();
+</script>
+</body>
+</html>
