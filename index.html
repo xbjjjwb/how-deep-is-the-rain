@@ -387,7 +387,7 @@
     <dt>这一小时</dt><dd><b id="hRate">0.0</b>毫米<span class="grade" id="hGrade"></span></dd>
     <dt>已累计</dt><dd><b id="hSum">0.0</b>毫米</dd>
   </dl>
-  <ol class="ms" id="hList" aria-label="水位已经没过的高度"></ol>
+  <ol class="ms" id="hList" aria-label="水位已经漫过的高度"></ol>
 </section>
 
 <footer id="dock">
@@ -514,7 +514,7 @@
       <tr><td>播放进度</td><td>00:00 到 24:00，每小时约 2.5 秒；底部的柱状图是每小时雨量，可以拖动跳到任意时刻</td></tr>
       <tr><td>雨丝密度、雾气、远处能见度</td><td>当前这一小时的雨量。以每小时 200 毫米为满档、开平方映射；这把尺子对所有数据都一样，不随当天最大值缩放，小雨就显示为小雨</td></tr>
       <tr><td>积水深度</td><td>从 00:00 起的累计雨量：1 毫米雨对应 1 毫米水深。按“雨水既不排走、也不汇流”计算，用来理解雨量，不是对实际积水的模拟</td></tr>
-      <tr><td>水尺与“已没过”清单</td><td>路沿 15 cm、车门下沿 30 cm、店门口两级台阶 45 cm、成年人膝盖 50 cm、公交站座椅 57 cm、轮胎顶 65 cm、孩子腰高 70 cm、引擎盖 90 cm、成年人腰 1 m、孩子身高 1.2 m、成年人身高 1.7 m。这些是常见的近似高度</td></tr>
+      <tr><td>水尺与“已漫过”清单</td><td>路沿 15 cm、车门下沿 30 cm、店门口两级台阶 45 cm、成年人膝盖 50 cm、公交站座椅 57 cm、轮胎顶 65 cm、孩子腰高 70 cm、引擎盖 90 cm、成年人腰 1 m、孩子身高 1.2 m、成年人身高 1.7 m。这些是常见的近似高度</td></tr>
       <tr><td>雨声</td><td>由程序实时合成，响度和雨滴声的频率跟随当前雨势（右下角开启）</td></tr>
       <tr><td>人物动作、镜头推拉与晃动、汽车双闪</td><td>叙事和氛围表现，跟随水位和雨势变化，不代表额外的数据</td></tr>
     </table>
@@ -2040,7 +2040,7 @@ const endTl = () => { tlDrag = false; };
 tl.addEventListener('pointerup', endTl);
 tl.addEventListener('pointercancel', endTl);
 
-/* ---------- 读数 + “已没过”清单 ---------- */
+/* ---------- 读数 + “已漫过”清单 ---------- */
 const hudEls = {
   clock: document.getElementById('hClock'), depth: document.getElementById('hDepth'), body: document.getElementById('hBody'),
   rate: document.getElementById('hRate'), grade: document.getElementById('hGrade'), sum: document.getElementById('hSum'),
@@ -2058,7 +2058,7 @@ let msPassed = -2;
 function depthWord(m) {
   let k = -1;
   MILESTONES.forEach(([h], i) => { if (m >= h) k = i; });
-  if (k >= 0) return `已没过${MILESTONES[k][1]}`;
+  if (k >= 0) return `已漫过${MILESTONES[k][1]}`;
   if (m < 0.003) return '路面湿了，开始积水';
   return `还没漫过路沿（再涨 ${Math.ceil((CURB_H - m) * 100)} cm）`;
 }
@@ -2076,7 +2076,7 @@ function updateHud(cum) {
   MILESTONES.forEach(([h], i) => { if (m >= h) k = i; });
   if (k !== msPassed) {
     msPassed = k;
-    const lo = Math.max(0, Math.min(k - 1, msItems.length - 3));   // 窄屏只显示的三条：最近没过的两条 + 下一条
+    const lo = Math.max(0, Math.min(k - 1, msItems.length - 3));   // 窄屏只显示的三条：最近漫过的两条 + 下一条
     msItems.forEach((li, i) => {
       li.classList.toggle('on', i <= k); li.classList.toggle('next', i === k + 1); li.classList.toggle('near', i >= lo && i < lo + 3);
     });
@@ -2094,7 +2094,7 @@ const FIG = { g: 284, s: 1.25 };   // 地面的 y、每厘米的像素数
 function heightWord(m) {
   let name = '';
   MILESTONES.forEach(([h, n]) => { if (m >= h - 1e-9) name = n; });
-  if (name) return `没过${name}`;
+  if (name) return `漫过${name}`;
   return m < 0.005 ? '路面几乎没有积水' : '还没漫过路沿';
 }
 function dayText() {
